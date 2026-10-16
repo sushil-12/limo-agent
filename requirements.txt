@@ -1,0 +1,16 @@
+# Runtime dependencies (pinned). Python 3.12.
+fastapi==0.143.0
+uvicorn==0.54.0
+uvloop==0.23.0; sys_platform != "win32"
+httptools==0.9.0
+pydantic==2.14.1
+pydantic-settings==2.15.0
+sqlalchemy[asyncio]==2.1.4
+aiomysql==0.3.2
+pymysql==1.2.3
+cryptography==50.0.2
+pyjwt==2.15.1
+httpx==0.28.1
+orjson==3.13.0
+sqlglot==30.22.0
+structlog==26.1.0

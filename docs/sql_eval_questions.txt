@@ -1,0 +1,24 @@
+# Questions for app.cli.sql_eval. One per line; lines starting with # are ignored.
+# Admin / platform
+how many bookings do we have?
+how many pending bookings are there?
+bookings by status
+how many bookings were cancelled this year?
+how many bookings were made today?
+how many bookings are scheduled for tomorrow?
+upcoming bookings with no driver assigned
+top 5 drivers by completed trips
+pending bookings per vehicle type
+which vehicle type is booked the most?
+total quoted amount of bookings this month
+how many unpaid bookings are there?
+how many airport transfers this month?
+average driver rating
+which affiliates are awaiting approval?
+how many new customers signed up this month?
+# Rider-style (run with --role rider --user-id <id>)
+how many pending bookings do I have?
+show my last 3 bookings
+when is my next trip?
+how many trips have I completed?
+how many of my bookings are unpaid?

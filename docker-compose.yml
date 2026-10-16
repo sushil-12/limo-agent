@@ -1,0 +1,53 @@
+# API + Ollama. MySQL is the existing Laravel database, outside this compose file.
+# In .env, set DB_HOST=host.docker.internal to reach MySQL running on the host.
+
+services:
+  api:
+    build: .
+    env_file: .env
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      PASSPORT_PUBLIC_KEY_PATH: /run/secrets/oauth-public.key
+      DATA_QUERY_LOG_PATH: ${DATA_QUERY_LOG_PATH:-/srv/logs/sql_queries.jsonl}
+    ports:
+      - "9000:9000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # reach host MySQL on Linux too
+    volumes:
+      # Copy limoapi/storage/oauth-public.key here (never the private key).
+      - ./secrets/oauth-public.key:/run/secrets/oauth-public.key:ro
+      # SQL query log for reviewing/correcting generated SQL (DATA_QUERY_LOG_PATH).
+      - ./logs:/srv/logs
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:0.40.3
+    environment:
+      OLLAMA_KEEP_ALIVE: 30m
+      # KV cache = NUM_PARALLEL x OLLAMA_NUM_CTX tokens. Use 1 on small machines (e.g. 8 GB Macs).
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-4}
+      OLLAMA_MAX_LOADED_MODELS: "1"
+    volumes:
+      - ollama-models:/root/.ollama  # pulled models persist across restarts
+    ports:
+      - "127.0.0.1:11434:11434"  # localhost only; the API reaches it on the compose network
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    # NVIDIA GPU (needs nvidia-container-toolkit on the host). Uncomment:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  ollama-models:

@@ -1,0 +1,32 @@
+# Secrets
+.env
+.env.*
+!.env.example
+secrets/
+*.key
+*.pem
+
+# Per-machine compose overrides (e.g. a copy of docker-compose.mac.yml)
+docker-compose.override.yml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# SQL query logs (questions may contain personal data)
+logs/
