@@ -1,10 +1,10 @@
-PYTHON ?= python3.12
+PYTHON ?= python3.13
 VENV   ?= .venv
 BIN    := $(VENV)/bin
 OLLAMA_MODEL ?= $(shell grep -E '^OLLAMA_MODEL=' .env 2>/dev/null | cut -d= -f2 || true)
 OLLAMA_MODEL := $(or $(OLLAMA_MODEL),llama3.1:8b)
 
-.PHONY: install dev test test-integration lint format pull-model up down
+.PHONY: install dev test test-integration lint format pull-model
 
 install:  ## Create the virtualenv and install pinned dev dependencies
 	$(PYTHON) -m venv $(VENV)
@@ -29,11 +29,5 @@ format:
 	$(BIN)/ruff format .
 	$(BIN)/ruff check --fix .
 
-pull-model:  ## Pull the model into the compose Ollama, or a local one if compose isn't running
-	docker compose exec ollama ollama pull $(OLLAMA_MODEL) 2>/dev/null || ollama pull $(OLLAMA_MODEL)
-
-up:
-	docker compose up -d --build
-
-down:
-	docker compose down
+pull-model:  ## Pull OLLAMA_MODEL into the local Ollama
+	ollama pull $(OLLAMA_MODEL)

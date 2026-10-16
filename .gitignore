@@ -6,9 +6,6 @@ secrets/
 *.key
 *.pem
 
-# Per-machine compose overrides (e.g. a copy of docker-compose.mac.yml)
-docker-compose.override.yml
-
 # Python
 __pycache__/
 *.py[cod]

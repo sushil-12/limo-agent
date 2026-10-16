@@ -18,7 +18,7 @@ The frontend contract is in **[docs/API.md](docs/API.md)**.
 
 ## Quick start (local)
 
-Prerequisites: Python 3.12, [Ollama](https://ollama.com), and access to the
+Prerequisites: Python 3.12+, [Ollama](https://ollama.com), and access to the
 Laravel MySQL database.
 
 ```bash
@@ -37,7 +37,7 @@ make test                    # no Ollama/MySQL needed
 
 | Here | Copy from | Notes |
 |---|---|---|
-| `DB_HOST`, `DB_PORT`, `DB_DATABASE` | Laravel `.env` | Same variable names. From Docker use `host.docker.internal`. |
+| `DB_HOST`, `DB_PORT`, `DB_DATABASE` | Laravel `.env` | Same variable names. |
 | `DB_USERNAME`, `DB_PASSWORD` | **a new read-only user** (below) | Don't reuse Laravel's account. Any special characters are fine (`URL.create`). |
 | `PASSPORT_PUBLIC_KEY_PATH` | `limoapi/storage/oauth-public.key` | Or set `PASSPORT_PUBLIC_KEY` to the PEM (same as Laravel's env var). **Never** copy the private key. |
 | `AUTH_ALLOWED_ROLES` | `tbl_user_roles` | Default `{"5":"rider","2":"driver"}`. |
@@ -158,35 +158,6 @@ curl -N $API/v1/chat -H "Authorization: Bearer $TOKEN" -H 'Content-Type: applica
 curl -s $API/v1/debug/db/tables -H "X-Service-Key: $SERVICE_API_KEY" | jq
 curl -s $API/v1/debug/db/tables/users -H "X-Service-Key: $SERVICE_API_KEY" | jq
 ```
-
-## Docker
-
-```bash
-cp env.example .env            # set DB_HOST=host.docker.internal for MySQL on the host
-mkdir -p secrets && cp ../limoapi/storage/oauth-public.key secrets/
-make up                        # api + ollama
-make pull-model                # pulls OLLAMA_MODEL into the ollama volume (once)
-curl -s localhost:9000/health/ready
-make down
-```
-
-- Multi-stage image on `python:3.12-slim`, runs as non-root uid 10001, with a
-  `HEALTHCHECK` on `/health/live`.
-- MySQL is **not** in compose; it's the existing Laravel database.
-  `extra_hosts: host.docker.internal:host-gateway` makes the host reachable on Linux too.
-- Models persist in the `ollama-models` volume. Ollama listens on `127.0.0.1:11434` only.
-- **NVIDIA GPU:** install `nvidia-container-toolkit` on the host and uncomment the
-  `deploy.resources` block in `docker-compose.yml`.
-- **macOS:** Docker can't use the Apple GPU (~10 tokens/s on CPU vs ~26 on Metal for
-  a 3B model on an M1). Run Ollama natively (Ollama.app) with `OLLAMA_MODEL` pulled
-  there, and use the `docker-compose.mac.yml` override, which points the API at
-  `host.docker.internal:11434` and skips the bundled Ollama. Setting `OLLAMA_BASE_URL`
-  in `.env` is not enough: compose's `environment:` overrides it.
-
-  ```bash
-  # in .env, so plain `docker compose` / `make up` use the override:
-  COMPOSE_FILE=docker-compose.yml:docker-compose.mac.yml
-  ```
 
 ## Performance
 

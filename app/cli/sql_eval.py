@@ -4,14 +4,14 @@ Runs the real pipeline (table selection, examples, model, guard, database) witho
 chat layer, as a given role. Each run is also appended to DATA_QUERY_LOG_PATH if set.
 
     # one question
-    docker compose exec api python -m app.cli.sql_eval --role admin "how many pending bookings"
+    .venv/bin/python -m app.cli.sql_eval --role admin "how many pending bookings"
 
     # a file of questions (one per line, # comments allowed), as a rider
-    docker compose exec -T api python -m app.cli.sql_eval --role rider --user-id 1771 - \
+    .venv/bin/python -m app.cli.sql_eval --role rider --user-id 1771 - \
         < docs/sql_eval_questions.txt
 
     # check that every example in sql_examples.jsonl still runs against the database
-    docker compose exec api python -m app.cli.sql_eval --check-examples
+    .venv/bin/python -m app.cli.sql_eval --check-examples
 """
 
 from __future__ import annotations

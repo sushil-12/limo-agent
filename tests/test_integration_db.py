@@ -1,8 +1,6 @@
 """Queries the real Laravel MySQL/MariaDB database configured in .env.
 
 Skipped by default. Run with ``pytest -m integration tests/test_integration_db.py -v``.
-From the host (not the container), override the Docker-only host name:
-``DB_HOST=127.0.0.1 pytest -m integration tests/test_integration_db.py -v``.
 """
 
 from __future__ import annotations
