@@ -355,17 +355,41 @@ async def test_2_chicago_airport_asks_which_one(out: list[str]) -> None:
     assert flow.d.outbound.pickup.airport_id == 117
 
 
-async def test_3_big_group_hides_small_and_empty_categories(out: list[str]) -> None:
+async def test_3_big_group_hides_small_but_lists_empty_categories(out: list[str]) -> None:
     flow, _ = make_flow("admin", out)
     await flow.start("5 am pickup on 14 nov from ord to mdw, 6 passengers 5 bags one way")
 
     assert flow.menu.kind == "category"
-    assert [c["name"] for c in flow.menu.options] == ["Full Size SUV XL"]
+    assert [c["name"] for c in flow.menu.options] == ["Full Size SUV XL", "Water Taxi"]
     text = "\n".join(out)
     assert "1. Full Size SUV XL — up to 7 pax / 7 bags — 4 available — $150.10 one way" in text
-    assert "Too small for 6 passengers / 5 bags (hidden): Mid-Size Sedan X, Mid-Size SUV" in text
-    assert "Classic" not in text
-    assert "Water Taxi" not in text
+    assert (
+        "2. Water Taxi — up to 10 pax / 10 bags — book now (no operator vehicles listed) — $300.00 one way"
+        in text
+    )
+    assert (
+        "Too small for 6 passengers / 5 bags (hidden): Mid-Size Sedan X, Mid-Size SUV, Classic / Antique"
+        in text
+    )
+
+
+async def test_empty_category_is_booked_as_the_master_vehicle(out: list[str]) -> None:
+    flow, api = make_flow("admin", out)
+    await flow.start("5 am pickup on 14 nov from ord to mdw, 6 passengers 5 bags one way")
+    await flow.handle("2")
+
+    assert not api.named("vehicles")
+    assert flow.d.is_master_vehicle
+    assert flow.d.vehicle["id"] == 11
+
+
+async def test_vehicles_are_listed_cheapest_first(out: list[str]) -> None:
+    flow, api = make_flow("admin", out)
+    api.vehicles = [SUVS[1], SUVS[0]]
+    await flow.start("5 am pickup on 14 nov from ord to mdw, 2 people, 1 bag one way")
+    await flow.handle("2")
+
+    assert [v["id"] for v in flow.menu.options] == [501, 502]
 
 
 async def test_4_category_pick_calls_vehicle_listing_with_type_and_user(out: list[str]) -> None:
@@ -417,6 +441,8 @@ async def test_6_airport_arrival_asks_flight_details_before_confirm(out: list[st
         "AA 1234",
         "New York",
     )
+    assert await run(flow, "skip") == ["detail:0:instructions"]
+    assert "Driver instructions (default): Pax - Text driver when landing." in "\n".join(out)
     assert await run(flow, "skip") == ["confirm"]
 
 
@@ -441,7 +467,7 @@ async def test_7_admin_chooses_existing_customer_from_a_menu(out: list[str]) -> 
 async def test_8_travel_agent_picks_a_client(out: list[str]) -> None:
     flow, api = await to_vehicle_menu("travel_agent", out)
     await run(flow, "1", "1", "bob", "1")
-    await run(flow, "AA", "AA 1", "Boston", "ok", "UA", "skip")
+    await run(flow, "AA", "AA 1", "Boston", "ok", "UA", "skip", "skip")
     assert flow.pending == "confirm"
     await flow.handle("yes")
 
@@ -458,7 +484,7 @@ async def test_8_travel_agent_picks_a_client(out: list[str]) -> None:
 
 async def test_9_no_at_confirm_submits_nothing(out: list[str]) -> None:
     flow, api = await to_vehicle_menu("individual", out)
-    await run(flow, "1", "AA", "AA 1", "Boston", "ok", "UA", "skip")
+    await run(flow, "1", "AA", "AA 1", "Boston", "ok", "UA", "skip", "skip")
     assert flow.pending == "confirm"
     await flow.handle("no")
 
@@ -477,7 +503,7 @@ async def test_10_submit_error_is_explained_and_never_retried(out: list[str]) ->
         )
     )
     flow, _ = await to_vehicle_menu("individual", out, api)
-    await run(flow, "1", "AA", "AA 1", "Boston", "ok", "UA", "skip", "yes")
+    await run(flow, "1", "AA", "AA 1", "Boston", "ok", "UA", "skip", "skip", "yes")
 
     creates = [c for c in api.calls if c[0].endswith("create-reservation")]
     assert len(creates) == 1
@@ -503,7 +529,7 @@ async def test_11_change_passengers_recalls_the_listings(out: list[str]) -> None
 
 async def test_individual_does_not_see_operator_or_driver_contact(out: list[str]) -> None:
     flow, _ = await to_vehicle_menu("individual", out)
-    await run(flow, "1", "AA", "AA 1", "Boston", "ok", "UA", "skip")
+    await run(flow, "1", "AA", "AA 1", "Boston", "ok", "UA", "skip", "skip")
     text = "\n".join(out)
     assert "SKYLIMO" not in text
     assert "312 555 0199" not in text
@@ -514,14 +540,14 @@ async def test_individual_does_not_see_operator_or_driver_contact(out: list[str]
 
 async def test_admin_summary_shows_driver_contact(out: list[str]) -> None:
     flow, _ = await to_vehicle_menu("admin", out)
-    await run(flow, "1", "1", "bob", "1", "AA", "AA 1", "Boston", "ok", "UA", "skip")
+    await run(flow, "1", "1", "bob", "1", "AA", "AA 1", "Boston", "ok", "UA", "skip", "skip")
     assert flow.pending == "confirm"
     assert "Joseph Anselmo, male — 1 3125550100 joe@example.com" in "\n".join(out)
 
 
 async def test_individual_booking_payload(out: list[str]) -> None:
     flow, api = await to_vehicle_menu("individual", out)
-    await run(flow, "1", "AA", "AA 1", "Boston", "ok", "UA", "skip", "yes")
+    await run(flow, "1", "AA", "AA 1", "Boston", "ok", "UA", "skip", "skip", "yes")
 
     path, body = next(c for c in api.calls if c[0].endswith("create-reservation"))
     assert path == "individual/create-reservation"
@@ -544,6 +570,28 @@ async def test_individual_booking_payload(out: list[str]) -> None:
     assert body["proceed"] is True
     assert "  Booked. Reservation #12345 (order ORD-1)." in out
     assert flow.finished
+
+
+async def test_city_pickup_asks_meet_greet_and_special_instructions(out: list[str]) -> None:
+    flow, api = await to_vehicle_menu("individual", out, trip="5 am pickup on 14 nov from 233 wacker to mdw")
+    asked = await run(flow, "1", "UA", "skip", "ok")
+
+    assert asked == [
+        "airline_search:0:dropoff",
+        "detail:0:dropoff_flight",
+        "meet_default:0",
+        "detail:0:instructions",
+    ]
+    assert "1. Driver - Text/call when on location (default)" in "\n".join(out)
+    assert "Driver instructions (default): Driver - Text on location." in "\n".join(out)
+    assert await run(flow, "Gate code 4521") == ["confirm"]
+    assert "  Notes:      Gate code 4521" in out
+    await flow.handle("yes")
+
+    _, body = next(c for c in api.calls if c[0].endswith("create-reservation"))
+    assert (body["meet_greet_choices"], body["transfer_type"]) == (1, "city_to_airport")
+    assert body["booking_instructions"].startswith("<ol><li>Driver - Text on location.")
+    assert body["booking_instructions"].endswith("<p>Gate code 4521</p>")
 
 
 async def test_past_time_is_refused_for_non_admins(out: list[str]) -> None:

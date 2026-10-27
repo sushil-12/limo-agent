@@ -34,6 +34,15 @@ AIRPORT_INSTRUCTIONS = (
     "name , cell phone and booking details. Text client with ETA when en route. Text pax with pickup "
     "instructions when plane has arrived.</li></ol>"
 )
+
+
+def default_instructions(pickup_kind: str) -> str:
+    """The form's default booking_instructions for a leg starting at this kind of place."""
+    return {"cruise": CRUISE_INSTRUCTIONS, "airport": AIRPORT_INSTRUCTIONS}.get(
+        pickup_kind, CITY_INSTRUCTIONS
+    )
+
+
 MEET_GREET_CITY = (1, "Driver - Text/call when on location")
 MEET_GREET_AIRPORT = (2, "Driver -  Airport - Text/call after plane lands with curbside meet location")
 
@@ -454,8 +463,7 @@ def _apply_leg(v: dict, leg: Leg, prefix: str, pickup_key: str, dropoff_key: str
 
     pickup_kind = leg.pickup.kind if leg.pickup else "city"
     dropoff_kind = leg.dropoff.kind if leg.dropoff else "city"
-    instructions = {"city": CITY_INSTRUCTIONS, "cruise": CRUISE_INSTRUCTIONS, "airport": AIRPORT_INSTRUCTIONS}
-    v[f"{prefix}booking_instructions"] = instructions[pickup_kind]
+    v[f"{prefix}booking_instructions"] = default_instructions(pickup_kind)
     default_greet = MEET_GREET_CITY if pickup_kind == "city" else MEET_GREET_AIRPORT
     greet_id, greet_name = (
         (leg.meet_greet["id"], leg.meet_greet["message"]) if leg.meet_greet else default_greet

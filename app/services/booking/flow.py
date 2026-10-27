@@ -35,8 +35,11 @@ from app.services.booking.parse import (
     parse_yes_no,
 )
 from app.services.booking.payload import (
+    MEET_GREET_AIRPORT,
+    MEET_GREET_CITY,
     airline_label,
     booking_data,
+    default_instructions,
     form_value,
     listing_payload,
     quote_payload,
@@ -884,7 +887,7 @@ class BookingFlow:
         if self._last_category:
             again = next((c for c in self._categories if c.get("name") == self._last_category), None)
             self._last_category = None
-            if again is not None and again.get("vehicle_count") != 0 and self._fits(again):
+            if again is not None and self._fits(again):
                 self.say(f"  Prices updated. Showing {again.get('name')} again ('categories' for all).")
                 await self._choose_category(again)
                 return
@@ -896,9 +899,9 @@ class BookingFlow:
 
     def _show_categories(self) -> None:
         d = self.d
-        available = [c for c in self._categories if c.get("vehicle_count") != 0]
-        fitting = [c for c in available if self._fits(c)]
-        small = [c for c in available if not self._fits(c)]
+        # vehicle_count = 0 stays listed: the web app shows it with "Book Now" (the master vehicle)
+        fitting = [c for c in self._categories if self._fits(c)]
+        small = [c for c in self._categories if not self._fits(c)]
         if not fitting:
             self.menu = None
             note = " big enough" if small else ""
@@ -911,7 +914,10 @@ class BookingFlow:
         for number, item in enumerate(fitting, start=1):
             price = (item.get(f"rate_breakdown_{d.service_type}") or {}).get("grand_total")
             count = item.get("vehicle_count")
-            available_text = f" — {count} available" if count is not None else ""
+            if count == 0:
+                available_text = " — book now (no operator vehicles listed)"
+            else:
+                available_text = f" — {count} available" if count is not None else ""
             size = f"up to {item.get('passenger')} pax / {item.get('luggage')} bags"
             self.say(
                 f"  {number}. {item.get('name')} — {size}{available_text} — "
@@ -924,6 +930,9 @@ class BookingFlow:
 
     async def _choose_category(self, category: dict[str, Any]) -> None:
         d = self.d
+        if category.get("vehicle_count") == 0:
+            # master-vehicle bookNow: the category itself is booked as the master vehicle
+            category = {**category, "is_master_vehicle": True}
         d.category = category
         if category.get("is_master_vehicle"):
             await self._choose_vehicle(category)
@@ -947,7 +956,11 @@ class BookingFlow:
             self._show_categories()
             return
         d.currency_symbol = (answer.get("currency") or {}).get("symbol") or d.currency_symbol
-        self._vehicles = list(answer.get("data") or [])
+        # select-vehicle's default Sort.LowToHigh on rate_breakdown_<service_type>.grand_total
+        key = f"rate_breakdown_{d.service_type}"
+        totals = [(_float((v.get(key) or {}).get("grand_total")), v) for v in answer.get("data") or []]
+        totals.sort(key=lambda pair: (pair[0] is None, pair[0] or 0))
+        self._vehicles = [v for _, v in totals]
         if not self._vehicles:
             self.say(f"  No vehicles are available for {category.get('name')}. Pick another category:")
             d.category = None
@@ -1330,6 +1343,16 @@ class BookingFlow:
                 if f"{index}:cruise_time" not in self._detail_skips:
                     self._ask(f"detail:{index}:cruise_time", "Ship time? (e.g. 7 am; optional: 'skip')")
                     return False
+            # the web form has meet_greet_choices for every pickup kind, not only airports
+            if f"meet:{index}" not in self._meet_greet_done:
+                return await self._ask_meet_greet(index)
+        if not self.d.instructions and "0:instructions" not in self._detail_skips:
+            # booking_instructions: the form pre-fills a default per pickup kind and lets the user add to it
+            pickup = self.d.outbound.pickup
+            default = default_instructions(pickup.kind if pickup else "city")
+            self.say(f"  Driver instructions (default): {_plain(default)}")
+            self._ask("detail:0:instructions", "Any special instructions to add? (optional: 'skip')")
+            return False
         return True
 
     def _answer_detail(self, key: str, text: str) -> None:
@@ -1348,6 +1371,9 @@ class BookingFlow:
             leg.cruise.port = value
         elif name == "cruise_name":
             leg.cruise.name = value
+        elif name == "instructions":
+            self.d.instructions = "" if skip else value
+            self._detail_skips.add(f"{index_text}:instructions")
         elif name == "cruise_time":
             if not skip:
                 found = parse_time(value)
@@ -1392,11 +1418,16 @@ class BookingFlow:
     async def _ask_meet_greet(self, index: int) -> bool:
         choices = list((self._common or {}).get("meetGreets") or [])
         if not choices:
-            self._meet_greet_done.add(f"meet:{index}")
-            return await self._ask_leg_details()
+            # BigData didn't load: offer the form's two defaults rather than skipping the question
+            choices = [{"id": i, "message": m} for i, m in (MEET_GREET_CITY, MEET_GREET_AIRPORT)]
         self.menu = Menu(f"meet:{index}", choices)
         leg = self.d.legs[index]
-        default = leg.meet_greet["id"] if leg.meet_greet else 2
+        city_pickup = leg.pickup is None or leg.pickup.kind == "city"
+        default = (
+            leg.meet_greet["id"]
+            if leg.meet_greet
+            else (MEET_GREET_CITY if city_pickup else MEET_GREET_AIRPORT)[0]
+        )
         self.say("  Meet & greet (arrival instructions):")
         for number, choice in enumerate(choices, start=1):
             mark = " (default)" if choice.get("id") == default else ""
@@ -1684,6 +1715,12 @@ def _float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _plain(html_text: str) -> str:
+    """'<ol><li>A</li><li>B</li></ol>' -> 'A / B'."""
+    items = [re.sub(r"<[^>]+>", "", part).strip() for part in re.split(r"</li>", html_text)]
+    return " / ".join(item for item in items if item)
 
 
 def _money(symbol: str, value: Any) -> str:

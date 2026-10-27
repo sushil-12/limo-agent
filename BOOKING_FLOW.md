@@ -455,19 +455,23 @@ mode). The flow:
    pickups are refused (book them in the web app).
 4. **Checks** (non-admins only for time): no past date/time; the same place only for a charter; a driving
    distance > 0.
-5. **Lists categories** (`master-vehicle-listing`). Categories with `vehicle_count = 0` are hidden. Ones too small
+5. **Lists categories** (`master-vehicle-listing`) in API order. Categories with `vehicle_count = 0` are listed as
+   "book now" and picking one books the category as the master vehicle (the web app's Book Now). Ones too small
    for the pax/bags are hidden and named. The price is `rate_breakdown_<service_type>.grand_total`, with the
    currency symbol from the API.
-6. **Lists vehicles** (`vehicle-listing` with `filters.vehicle-type`, `user_id`, `selected_amenities: []`). A
+6. **Lists vehicles** (`vehicle-listing` with `filters.vehicle-type`, `user_id`, `selected_amenities: []`), cheapest
+   first by `rate_breakdown_<service_type>.grand_total` (select-vehicle's default Low-High sort). A
    master category is selected directly (admin also calls `get-master-vehicle-info`).
 7. **Prices** via `admin/booking-rates-vehicle` and the copied rates math. Base rate ≤ 0 → "Base rate can not be
    empty", pick another vehicle.
 8. **Customer** per role (§2). Admin: existing customer / a travel agent's client / new customer (first, last,
    email, phone with country code). Travel agent: existing client / new client. Individual: their own account. The
    passenger is auto-filled and can be changed (`change passenger name to …`).
-9. **Leg details** per §4: arrival airline, flight and origin city, plus meet & greet (menu; `ok` keeps the
-   default); departure airline and an optional flight number; cruise port, ship and time. The same for the return
-   leg.
+9. **Leg details** per §4: arrival airline, flight and origin city; departure airline and an optional flight
+   number; cruise port, ship and time. Then meet & greet for **every** pickup kind (menu; `ok` keeps the default:
+   1 for a city pickup, 2 otherwise). The same for the return leg. Last, the default driver instructions for the
+   pickup kind are shown and special instructions are asked once (optional: `skip`). They are added to
+   `booking_instructions` (and `return_booking_instructions`), and `change notes to …` still works.
 10. **Summary**: trip, legs, flights, pax/bags, vehicle, operator (admin), driver, customer, passenger, the price
     lines and total (and a note if it differs from the listing price), payment (none now), and the 24-hour note for
     non-admins. Then **"Confirm booking? (yes/no)"**. Only an explicit yes submits.
