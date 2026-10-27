@@ -10,7 +10,15 @@ from typing import Any
 import anyio
 import orjson
 
-from app.services.chat_service import ChatData, ChatDelta, ChatDone, ChatEvent, ChatFailed, ChatStarted
+from app.services.chat_service import (
+    ChatBooking,
+    ChatData,
+    ChatDelta,
+    ChatDone,
+    ChatEvent,
+    ChatFailed,
+    ChatStarted,
+)
 
 PING = b": ping\n\n"
 SSE_HEADERS = {
@@ -31,6 +39,8 @@ def encode_chat_event(event: ChatEvent) -> bytes:
             return format_event("start", {"conversation_id": cid, "model": model})
         case ChatData(data=data):
             return format_event("data", data.model_dump())
+        case ChatBooking(booking=booking):
+            return format_event("booking", booking.model_dump())
         case ChatDelta(content=content):
             return format_event("delta", {"content": content})
         case ChatDone(usage=usage, timings=timings, reply_type=reply_type):

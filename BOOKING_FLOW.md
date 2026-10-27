@@ -8,7 +8,7 @@ All URLs below are relative to `serverUrl` = `https://api.1800limo.com/api/` (pr
 Every authenticated call sends `Authorization: Bearer <Passport access token>` (added by
 `interceptors/http-config.interceptor.ts:41` / `auth.interceptor.ts:29`). No other auth header is used.
 
-> Status: Phase 2 implemented in the shell (`:book`, `app/services/booking/`). §9 lists the open questions; §10
+> Status: Phase 2 implemented in the shell (`:book`, `app/services/booking/`) and the web chat (§11). §9 lists the open questions; §10
 > records the answers and the defaults taken for the questions still open.
 
 ---
@@ -497,3 +497,33 @@ brief scenarios, plus the parser, rates, payload, visibility and HTTP client).
 - A travel agent's **new** client cannot get a card: there is no client add-card endpoint.
 - Customer details typed into the shell (names, phones) go into the shell's readline history like any other input.
   Card numbers never do.
+
+## 11. Booking from the web chat (`POST /v1/chat`)
+
+The same `BookingFlow` also runs in the web chat (`app/services/booking/chat.py`, contract in
+`docs/API.md` → "Booking a ride"). What differs from the shell:
+
+- **Start:** a chat message matching the booking-request pattern ("book … ride/from/pickup …",
+  "gaadi chahiye", …) from a signed-in rider, travel agent or admin. Guests are asked to sign in,
+  other roles are told to use the website/app, and without `GOOGLE_MAPS_API_KEY` the chat says
+  booking isn't available. `CHAT_BOOKING_ENABLED=false` turns it off.
+- **State:** kept in the agent process, keyed by user id + `conversation_id`, dropped after
+  `CHAT_BOOKING_TTL_SECONDS` idle (default 30 min). The web widget now sends a `conversation_id`
+  (new per "New chat"). No LLM is involved in booking turns; the system prompt tells the model
+  how to start a booking and that it can't change or cancel one.
+- **Token:** the user's own bearer token from the chat request is passed to the 1800limo API
+  (refreshed on every message), never logged.
+- **Photos:** category and vehicle menus are sent as cards (`booking.cards`) with the listing
+  photos: `cat_img` for `master-vehicle-listing` rows, `vehicle_images` for `vehicle-listing`
+  rows (`QuoteController.php:1016` / `:2507`; master vehicles `:2685` / `:2863`). Only absolute
+  http(s) URLs are passed on, at most 5 per card. The cards replace the numbered list in the text.
+- **Buttons:** `booking.replies` suggests answers for the pending question (Yes/No, One way /
+  Round trip / Charter, AM/PM, OK, Skip, Back, Cancel).
+- **Disconnects:** a turn runs to completion even if the browser disconnects (it is shielded), so a
+  submit can't be cut in half; what that turn said is sent with the next reply.
+- **Cards for new customers:** the local card form can't open for a website user, so after an
+  admin books a new customer the chat says to add the card from the web app.
+
+Gaps: sessions are per process (several workers need sticky routing or a shared store); the
+summary's aligned columns render as plain lines in the widget; numbered menus other than
+categories/vehicles (airports, airlines, customers) stay as text.

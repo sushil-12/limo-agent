@@ -53,7 +53,6 @@ import asyncio
 import atexit
 import contextlib
 import os
-import re
 import sys
 import termios
 import time
@@ -77,6 +76,7 @@ from app.llm.factory import create_llm_provider, create_ollama_client
 from app.schemas.chat import ChatMessageIn, ChatRequest
 from app.services.booking.api import BOOKING_MODES, ROLE_PATHS, ApiError, LimoApi
 from app.services.booking.card_form import collect_card
+from app.services.booking.chat import is_booking_request
 from app.services.booking.flow import BookingFlow, add_card
 from app.services.booking.maps import GoogleMaps
 from app.services.booking.reference import airport_index
@@ -97,14 +97,6 @@ _DEFAULT_CACHE = Path("data/learned_sql.jsonl")
 _DEFAULT_EVAL = Path("docs/sql_eval_questions.txt")
 _ADMIN_USER_ID = 1  # any id works for admins; scoped roles need a real users.id
 _MAX_CELL = 40
-# A chat line that asks to book a ride starts the booking flow instead of the chatbot.
-_BOOKING_REQUEST = re.compile(
-    r"^\s*(?:hi|hello|hey|please|pls|kindly|can\s+you|could\s+you|i\s+(?:want|need|would\s+like)|"
-    r"we\s+need|mujhe|muje|hume)?[\s,]*(?:to\s+)?(?:book|booking|reserve)\b.*\b(?:ride|car|cab|limo|taxi|"
-    r"transfer|trip|pickup|pick\s*up|sedan|suv|from|se)\b|"
-    r"\b(?:gaadi|gadi|cab|car|ride|taxi)\s+(?:book\s+)?(?:chahiye|karo|kar\s+do|book\s+karo)\b",
-    re.IGNORECASE,
-)
 
 
 class RecordingAgent(DataAgent):
@@ -163,7 +155,7 @@ class Shell:
                 await self.booking.handle(line)
                 if self.booking.finished:
                     self.booking = None
-            elif self.mode == "chat" and _BOOKING_REQUEST.search(line):
+            elif self.mode == "chat" and is_booking_request(line):
                 await self.book(line)
             else:
                 await (self.say(line) if self.mode == "chat" else self.ask(line))

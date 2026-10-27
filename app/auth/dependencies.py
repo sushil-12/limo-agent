@@ -14,7 +14,8 @@ from app.core.errors import UnauthorizedError
 SERVICE_KEY_HEADER = "X-Service-Key"
 
 
-def _bearer_token(request: Request) -> str | None:
+def bearer_token(request: Request) -> str | None:
+    """The raw ``Authorization: Bearer`` token, or None."""
     header = request.headers.get("authorization")
     if not header:
         return None
@@ -27,7 +28,7 @@ def _bearer_token(request: Request) -> str | None:
 
 async def get_current_user(request: Request) -> CurrentUser:
     """Resolve ``Authorization: Bearer <token>`` to a Laravel user, or raise 401."""
-    token = _bearer_token(request)
+    token = bearer_token(request)
     if token is None:
         raise UnauthorizedError()
     verifier: PassportTokenVerifier = request.app.state.token_verifier

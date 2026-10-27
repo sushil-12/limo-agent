@@ -6,7 +6,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-MAX_MESSAGES = 30
+MAX_MESSAGES = 30  # newest messages kept per request
+MAX_MESSAGES_ACCEPTED = 200  # longer histories are trimmed to MAX_MESSAGES, not rejected
 MAX_MESSAGE_CHARS = 4000
 CLIENT_ROLES = ("user", "assistant")
 
@@ -39,7 +40,7 @@ class ChatRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    messages: Annotated[list[ChatMessageIn], Field(min_length=1, max_length=MAX_MESSAGES)]
+    messages: Annotated[list[ChatMessageIn], Field(min_length=1, max_length=MAX_MESSAGES_ACCEPTED)]
     stream: bool = True
     conversation_id: Annotated[str | None, Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")] = None
 
@@ -47,6 +48,9 @@ class ChatRequest(BaseModel):
     def _ends_with_user(self) -> ChatRequest:
         if self.messages[-1].role != "user":
             raise ValueError("the last message must have role 'user'")
+        # Clients that send the whole chat (older web widgets) keep working: only the newest count.
+        if len(self.messages) > MAX_MESSAGES:
+            self.messages = self.messages[-MAX_MESSAGES:]
         return self
 
 
@@ -81,6 +85,26 @@ class DataOut(BaseModel):
     elapsed_ms: float | None
 
 
+class BookingCardOut(BaseModel):
+    """One option of a category / vehicle menu. Picking it sends ``number`` as the next message."""
+
+    number: int
+    title: str
+    subtitle: str | None
+    details: list[str]
+    price: str
+    images: list[str]  # absolute photo URLs, main photo first; may be empty
+
+
+class BookingOut(BaseModel):
+    """The booking state behind a reply_type="booking" answer."""
+
+    active: bool  # the next message in this conversation goes to the booking
+    cards_kind: Literal["category", "vehicle"] | None
+    cards: list[BookingCardOut]  # replace the numbered list in ``content``
+    replies: list[str]  # suggested answers to show as buttons
+
+
 class ChatResponse(BaseModel):
     """Body returned when stream=false."""
 
@@ -90,6 +114,8 @@ class ChatResponse(BaseModel):
     usage: UsageOut
     timings: TimingsOut
     # "answer" = generated reply; "data" = generated from a database lookup (see ``data``);
+    # "booking" = a step of booking a ride (see ``booking``);
     # "ask_name" / "off_topic" = fixed reply, no generation.
-    reply_type: Literal["answer", "data", "ask_name", "off_topic"] = "answer"
+    reply_type: Literal["answer", "data", "booking", "ask_name", "off_topic"] = "answer"
     data: DataOut | None = None
+    booking: BookingOut | None = None

@@ -4,6 +4,11 @@ Before the real reply, a turn may be answered with a fixed message instead:
 - ``ask_name``: a guest who has not given a name yet is asked for it (no LLM call).
 - ``off_topic``: the topic guard classified the message as outside 1800Limo.
 
+A signed-in user who asks to book a ride gets the booking conversation instead
+(``reply_type="booking"``, see ``app.services.booking.chat``): every later message in
+that conversation goes to the booking until it is booked or cancelled. No LLM is
+involved, and nothing is booked without the summary and an explicit "yes".
+
 For users who may query data, the same guard call can answer DATA: the data agent
 then writes and runs a guarded SQL query, and the reply is generated from its result
 (``reply_type="data"``; the streamed ``data`` event carries the rows). A question the
@@ -16,7 +21,7 @@ Future extension points (all inside this class, so routes and the API contract
 stay unchanged):
 - RAG: retrieve FAQ passages before calling the provider and add them to the
   system context.
-- Tools: route write intents (create/cancel bookings, driver registration) to a
+- Tools: route other write intents (cancel bookings, driver registration) to a
   provider with tool calling, via ``app.llm.factory``.
 - History: load and save turns by ``conversation_id`` (e.g. Redis) instead of
   trusting client-sent history.
@@ -52,6 +57,8 @@ from app.llm.base import (
     Usage,
 )
 from app.schemas.chat import (
+    BookingCardOut,
+    BookingOut,
     ChatMessageIn,
     ChatRequest,
     ChatResponse,
@@ -60,6 +67,7 @@ from app.schemas.chat import (
     TimingsOut,
     UsageOut,
 )
+from app.services.booking.chat import BookingReply, BookingSessions
 from app.services.context_window import fit_history
 from app.services.data.agent import DataAgent, DataResult
 from app.services.data.followups import is_place_question, standalone_questions
@@ -79,7 +87,7 @@ from app.services.topic_guard import TopicGuard
 
 logger = get_logger(__name__)
 
-ReplyType = Literal["answer", "data", "ask_name", "off_topic"]
+ReplyType = Literal["answer", "data", "booking", "ask_name", "off_topic"]
 _NO_USAGE = UsageOut(prompt_tokens=0, completion_tokens=0)
 _FOLLOW_UP = re.compile(
     r"^\W*(and|also|but|or|only|just|now|then|same|those|them|these|what about|how about|what of|vs)\b",
@@ -130,6 +138,13 @@ class ChatData:
 
 
 @dataclass(frozen=True, slots=True)
+class ChatBooking:
+    """The booking step a booking reply belongs to; sent before the text."""
+
+    booking: BookingOut
+
+
+@dataclass(frozen=True, slots=True)
 class ChatDone:
     usage: UsageOut
     timings: TimingsOut
@@ -142,7 +157,7 @@ class ChatFailed:
     message: str
 
 
-ChatEvent = ChatStarted | ChatData | ChatDelta | ChatDone | ChatFailed
+ChatEvent = ChatStarted | ChatData | ChatBooking | ChatDelta | ChatDone | ChatFailed
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +192,7 @@ class ChatService:
         data_agent: DataAgent | None = None,
         chat_log: JsonlLog | None = None,
         log_content: bool = False,
+        booking: BookingSessions | None = None,
     ) -> None:
         self._provider = provider
         self._num_ctx = num_ctx
@@ -186,6 +202,7 @@ class ChatService:
         self._data = data_agent
         self._chat_log = chat_log
         self._log_content = log_content
+        self._booking = booking
 
     @property
     def model(self) -> str:
@@ -218,7 +235,11 @@ class ChatService:
             # latest turn and otherwise drift to numbers from earlier in the conversation.
             turns[-1] = LLMMessage("user", f"{turns[-1].content}\n\n{context}")
         messages = fit_history(
-            build_system_prompt(requester, can_look_up=self._can_query(requester)),
+            build_system_prompt(
+                requester,
+                can_look_up=self._can_query(requester),
+                can_book=self._booking is not None and self._booking.offers(requester),
+            ),
             turns,
             num_ctx=self._num_ctx,
             reserved_for_reply=self._reserved,
@@ -267,11 +288,39 @@ class ChatService:
             return await self._data.answer(requester, _llm_history(history))
         return None
 
-    async def complete(self, requester: Requester, request: ChatRequest) -> ChatResponse:
-        """Generate a full reply (stream=false)."""
+    async def _booking_turn(
+        self, requester: Requester, request: ChatRequest, token: str | None
+    ) -> BookingReply | None:
+        """The booking's reply when this message starts or continues a booking, else None."""
+        if self._booking is None:
+            return None
+        return await self._booking.handle(
+            requester, request.conversation_id, token, request.messages[-1].content
+        )
+
+    async def complete(
+        self, requester: Requester, request: ChatRequest, token: str | None = None
+    ) -> ChatResponse:
+        """Generate a full reply (stream=false). ``token`` is the user's bearer token, for booking."""
         conversation_id = request.conversation_id or uuid.uuid4().hex
         history = self._history(requester, request)
         started = turn_started = time.perf_counter()
+        booking = await self._booking_turn(requester, request, token)
+        if booking is not None:
+            canned = _Canned("booking", booking.content)
+            timings = self._log_canned(requester, conversation_id, request, canned, started)
+            await self._record(
+                requester, conversation_id, request, history, turn_started, "booking", booking.content
+            )
+            return ChatResponse(
+                conversation_id=conversation_id,
+                content=booking.content,
+                model=self.model,
+                usage=_NO_USAGE,
+                timings=timings,
+                reply_type="booking",
+                booking=_booking_out(booking),
+            )
         try:
             route = await self._route(requester, request, history)
         except LLMError as exc:
@@ -351,7 +400,9 @@ class ChatService:
             data=_data_out(data),
         )
 
-    async def stream(self, requester: Requester, request: ChatRequest) -> AsyncGenerator[ChatEvent, None]:
+    async def stream(
+        self, requester: Requester, request: ChatRequest, token: str | None = None
+    ) -> AsyncGenerator[ChatEvent, None]:
         """Yield ChatStarted, ChatDelta*, then ChatDone or ChatFailed.
 
         Provider errors become a ChatFailed event because HTTP headers are already
@@ -363,6 +414,17 @@ class ChatService:
         yield ChatStarted(conversation_id, self.model)
 
         started = turn_started = time.perf_counter()
+        booking = await self._booking_turn(requester, request, token)
+        if booking is not None:
+            canned = _Canned("booking", booking.content)
+            timings = self._log_canned(requester, conversation_id, request, canned, started)
+            await self._record(
+                requester, conversation_id, request, history, turn_started, "booking", booking.content
+            )
+            yield ChatBooking(_booking_out(booking))
+            yield ChatDelta(booking.content)
+            yield ChatDone(_NO_USAGE, timings, "booking")
+            return
         try:
             route = await self._route(requester, request, history)
         except LLMError as exc:
@@ -661,6 +723,15 @@ def _data_out(data: DataResult | None) -> DataOut | None:
         row_count=len(data.rows),
         truncated=data.truncated,
         elapsed_ms=data.elapsed_ms,
+    )
+
+
+def _booking_out(reply: BookingReply) -> BookingOut:
+    return BookingOut(
+        active=reply.active,
+        cards_kind=reply.cards_kind,  # type: ignore[arg-type]  # "category" | "vehicle" | None
+        cards=[BookingCardOut.model_validate(card) for card in reply.cards],
+        replies=list(reply.replies),
     )
 
 

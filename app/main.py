@@ -26,6 +26,10 @@ from app.core.rate_limit import InMemoryRateLimiter
 from app.db.session import create_engine, create_sessionmaker
 from app.llm.base import LLMError, LLMProvider
 from app.llm.factory import create_llm_provider, create_ollama_client
+from app.services.booking.api import LimoApi
+from app.services.booking.chat import BookingSessions
+from app.services.booking.maps import GoogleMaps
+from app.services.booking.reference import airport_index
 from app.services.chat_service import ChatService
 from app.services.data.agent import DataAgent
 from app.services.data.catalog import SchemaCatalog
@@ -91,6 +95,21 @@ def _build_data_agent(
     )
 
 
+def _build_booking(settings: Settings, client: httpx.AsyncClient) -> BookingSessions:
+    """Booking from the chat; it answers "not available" when GOOGLE_MAPS_API_KEY is missing."""
+    key = settings.google_maps_api_key
+
+    def api_for(token: str) -> LimoApi:
+        return LimoApi(settings.limo_api_base_url, token, client)
+
+    return BookingSessions(
+        api_factory=api_for,
+        maps=GoogleMaps(key.get_secret_value(), client) if key is not None else None,
+        airports=airport_index,
+        ttl_seconds=settings.chat_booking_ttl_seconds,
+    )
+
+
 def _build_lifespan(
     settings: Settings, engine: AsyncEngine | None
 ) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
@@ -118,6 +137,8 @@ def _build_lifespan(
         log_content = not settings.is_production and settings.log_level == "DEBUG"
         data_agent = _build_data_agent(settings, db_engine, http_client, provider, log_content)
         needs_guard = settings.topic_filter_enabled or data_agent is not None
+        # The booking API and Google calls get their own client: http_client is Ollama's.
+        booking_http = httpx.AsyncClient() if settings.chat_booking_enabled else None
         app.state.chat_service = ChatService(
             provider,
             num_ctx=settings.ollama_num_ctx,
@@ -129,6 +150,7 @@ def _build_lifespan(
             data_agent=data_agent,
             chat_log=JsonlLog(settings.chat_log_path) if settings.chat_log_path else None,
             log_content=log_content,
+            booking=_build_booking(settings, booking_http) if booking_http is not None else None,
         )
         app.state.health_service = HealthService(
             db_engine,
@@ -157,6 +179,8 @@ def _build_lifespan(
                 with contextlib.suppress(asyncio.CancelledError):
                     await warmup
             await http_client.aclose()
+            if booking_http is not None:
+                await booking_http.aclose()
             await db_engine.dispose()
             logger.info("shutdown")
 

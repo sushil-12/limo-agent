@@ -102,9 +102,11 @@ class Settings(BaseSettings):
     auth_cache_ttl_seconds: float = Field(default=60.0, ge=0)
     auth_cache_max_entries: int = Field(default=10_000, gt=0)
 
-    # --- Booking from the shell (:book) ---------------------------------------------
+    # --- Booking a ride (shell :book and the web chat) --------------------------------
     limo_api_base_url: str = "https://api.1800limo.com/api/"  # the web app's environment.serverUrl
     google_maps_api_key: SecretStr | None = None  # server-side Places (New) + Directions key
+    chat_booking_enabled: bool = True  # "book a ride ..." in /v1/chat starts the booking flow
+    chat_booking_ttl_seconds: float = Field(default=1800.0, gt=0)  # idle bookings are dropped
 
     @field_validator(
         "service_api_key",

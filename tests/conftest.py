@@ -173,10 +173,11 @@ def settings_factory(public_pem: str) -> Callable[..., Settings]:
             "ollama_base_url": OLLAMA_URL,
             "ollama_model": MODEL,
             "ollama_warmup": False,
-            "cors_origins": ["http://localhost:4200"],
+            "cors_origins": ["*"],
             "rate_limit_per_minute": 100,
             "topic_filter_enabled": False,  # enabled explicitly in tests/test_guest_chat.py
             "data_queries_enabled": False,  # enabled explicitly in tests/test_data_queries.py
+            "chat_booking_enabled": False,  # enabled explicitly in tests/test_chat_booking.py
         }
         values.update(overrides)
         return Settings(_env_file=None, **values)  # type: ignore[call-arg]

@@ -145,6 +145,13 @@ async def _validation_error_handler(request: Request, exc: RequestValidationErro
         {"loc": [str(part) for part in err.get("loc", ())], "message": err.get("msg", "")}
         for err in exc.errors()
     ]
+    # Logged so a 422 in the access log can be explained: which fields and why, never the values.
+    logger.warning(
+        "request_invalid",
+        method=request.method,
+        path=request.url.path,
+        errors=[f"{'.'.join(d['loc'])}: {d['message']}" for d in details],
+    )
     return error_response(request, 422, "validation_error", "The request is invalid.", details=details)
 
 

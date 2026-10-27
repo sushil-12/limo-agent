@@ -55,6 +55,7 @@ from app.services.booking.rates import (
 from app.services.booking.reference import Airport, AirportIndex
 
 Say = Callable[[str], None]
+ShowCards = Callable[[str, list[dict[str, Any]]], None]  # menu kind, one card per numbered option
 CardCollector = Callable[..., Awaitable[CardResult]]
 AccountLookup = Callable[[int], Awaitable[int | None]]  # reservation id -> tbl_reservations.acc_id
 
@@ -96,6 +97,8 @@ class BookingFlow:
     now: Callable[[], datetime] = field(default=lambda: datetime.now().astimezone())
     collect_card: CardCollector = collect_card
     account_for_reservation: AccountLookup | None = None
+    show_cards: ShowCards | None = None  # the web chat renders category / vehicle menus as photo cards
+    card_form: bool = True  # False where no local browser form can be opened (the web chat)
 
     d: BookingDraft = field(default_factory=BookingDraft)
     pending: str | None = None
@@ -723,9 +726,7 @@ class BookingFlow:
     async def _resolve(self, slot: str, text: str) -> bool:
         """Resolve one typed place. False when a menu or question is now waiting."""
         if re.search(r"\bfbo\b|private\s+(?:jet|plane)", text, re.I):
-            self.say(
-                "  FBO / private-jet pickups aren't supported in the shell yet; book those in the web app."
-            )
+            self.say("  FBO / private-jet pickups can't be booked here yet; book those in the web app.")
             return self._reask_place(slot)
         cruise = bool(re.search(r"\bcruise\b", text, re.I))
         code = _CODE.match(text)
@@ -911,18 +912,26 @@ class BookingFlow:
         self.menu = Menu("category", fitting)
         label = _SERVICE_NAMES[d.service_type or "one_way"]
         self.say(f"  Vehicle categories for {d.pax} passenger(s) / {d.luggage} bag(s):")
+        cards = []
         for number, item in enumerate(fitting, start=1):
-            price = (item.get(f"rate_breakdown_{d.service_type}") or {}).get("grand_total")
+            amount = (item.get(f"rate_breakdown_{d.service_type}") or {}).get("grand_total")
+            price = f"{_money(d.currency_symbol, amount)} {label}"
             count = item.get("vehicle_count")
             if count == 0:
                 available_text = " — book now (no operator vehicles listed)"
             else:
                 available_text = f" — {count} available" if count is not None else ""
             size = f"up to {item.get('passenger')} pax / {item.get('luggage')} bags"
-            self.say(
-                f"  {number}. {item.get('name')} — {size}{available_text} — "
-                f"{_money(d.currency_symbol, price)} {label}"
-            )
+            self.say(f"  {number}. {item.get('name')} — {size}{available_text} — {price}")
+            cards.append({
+                "number": number, "title": str(item.get("name") or ""), "subtitle": None,
+                "details": [size] + (
+                    ["Book now"] if count == 0 else [f"{count} available"] if count is not None else []
+                ),
+                "price": price, "images": _images(item.get("cat_img"), item.get("vehicle_images")),
+            })  # fmt: skip
+        if self.show_cards is not None:
+            self.show_cards("category", cards)
         if small:
             names = ", ".join(str(c.get("name")) for c in small)
             self.say(f"  Too small for {d.pax} passengers / {d.luggage} bags (hidden): {names}")
@@ -972,6 +981,7 @@ class BookingFlow:
         d = self.d
         self.menu = Menu("vehicle", self._vehicles)
         self.say(f"  {d.category.get('name') if d.category else 'Vehicles'}:")
+        cards = []
         for number, vehicle in enumerate(self._vehicles, start=1):
             details = vehicle.get("vehicle_details") or {}
             title = " ".join(
@@ -980,14 +990,25 @@ class BookingFlow:
             line = f"  {number}. {title or vehicle.get('name')}"
             if title and vehicle.get("name"):
                 line += f" ({vehicle.get('name')})"
+            operator_text = None
             if self.is_admin:
                 operator = vehicle.get("affiliate_company") or vehicle.get("affiliate_name")
                 if operator:
                     phone = vehicle.get("affiliate_phone")
-                    line += f" — {operator}" + (f" ({phone})" if phone else "")
-            price = (vehicle.get(f"rate_breakdown_{d.service_type}") or {}).get("grand_total")
-            line += f" — {vehicle.get('passenger')} pax / {vehicle.get('luggage')} bags"
-            self.say(f"{line} — from {_money(d.currency_symbol, price)}")
+                    operator_text = f"{operator}" + (f" ({phone})" if phone else "")
+                    line += f" — {operator_text}"
+            amount = (vehicle.get(f"rate_breakdown_{d.service_type}") or {}).get("grand_total")
+            price = f"from {_money(d.currency_symbol, amount)}"
+            size = f"{vehicle.get('passenger')} pax / {vehicle.get('luggage')} bags"
+            self.say(f"{line} — {size} — {price}")
+            cards.append({
+                "number": number, "title": str(title or vehicle.get("name") or ""),
+                "subtitle": str(vehicle.get("name")) if title and vehicle.get("name") else None,
+                "details": [size] + ([operator_text] if operator_text else []),
+                "price": price, "images": _images(None, vehicle.get("vehicle_images")),
+            })  # fmt: skip
+        if self.show_cards is not None:
+            self.show_cards("vehicle", cards)
         self.say("  Pick a vehicle number ('back' for categories).")
 
     async def _choose_vehicle(self, vehicle: dict[str, Any]) -> None:
@@ -1605,6 +1626,10 @@ class BookingFlow:
         self.say("  Confirmation emails and texts go out from the server as usual.")
         customer = d.customer
         if self.is_admin and customer is not None and customer.account_type == "loose_customer":
+            if not self.card_form:
+                self.say("  The new customer has no card yet: add one from their account in the web app.")
+                self.finished = True
+                return
             self._ask(
                 "card",
                 f"Add a payment card for {customer.label.removesuffix(' (new customer)')} now? "
@@ -1647,6 +1672,18 @@ async def add_card(api: LimoApi, path: str, fields: dict[str, Any], *, acc_id: A
     body.update(fields)
     answer = await api.post(path, body)
     return str(answer.get("message") or "Credit card has been added successfully.")
+
+
+_MAX_IMAGES = 5
+
+
+def _images(main: Any, gallery: Any) -> list[str]:
+    """Absolute http(s) photo URLs from a listing row (``cat_img`` / ``vehicle_images``), main first."""
+    found: list[str] = []
+    for value in [main, *(gallery if isinstance(gallery, list) else [])]:
+        if isinstance(value, str) and re.match(r"^https?://\S+$", value) and value not in found:
+            found.append(value)
+    return found[:_MAX_IMAGES]
 
 
 def _passenger_from(data: dict[str, Any]) -> Passenger:

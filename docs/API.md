@@ -143,7 +143,7 @@ Auth and rate limit apply.
 
 | Field | Type | Rules |
 |---|---|---|
-| `messages` | array | 1–30 items. Oldest first. The **last item must be `role: "user"`**. |
+| `messages` | array | 1–200 items; only the newest 30 are used. Oldest first. The **last item must be `role: "user"`**. |
 | `messages[].role` | string | `"user"` or `"assistant"` only. **`"system"` is rejected (422)**; the server adds its own. |
 | `messages[].content` | string | 1–4,000 characters, not blank. |
 | `stream` | boolean | Default `true`. |
@@ -151,8 +151,8 @@ Auth and rate limit apply.
 
 Unknown fields are rejected.
 
-**The server keeps no history yet.** Send the recent conversation (up to 30
-messages) on every request, including the assistant's earlier replies. If the
+**The server keeps no chat history yet.** Send the recent conversation (the newest
+30 messages; older ones are ignored) on every request, including the assistant's earlier replies. If the
 history is too long for the model's context window, the server drops the oldest
 messages; the newest message is always kept. Reuse the `conversation_id` the first
 response gave you. When the server starts storing history, the same field will be
@@ -180,7 +180,8 @@ used and the contract won't change.
 `load_ms`, `time_to_first_token_ms` and `tokens_per_sec` may be `null`.
 
 `reply_type` is `"answer"` for a normal reply, `"data"` when the reply was generated
-from a database lookup, and `"ask_name"` / `"off_topic"` for fixed replies.
+from a database lookup, `"booking"` for a step of booking a ride, and `"ask_name"` /
+`"off_topic"` for fixed replies.
 
 #### Data answers (`reply_type: "data"`)
 
@@ -213,6 +214,53 @@ The response then also carries `data`, so the UI can render a table next to the 
 
 `data` is `null` for every other `reply_type`.
 
+#### Booking a ride (`reply_type: "booking"`)
+
+A signed-in rider, travel agent or admin can book a ride by asking for one ("book 5 am
+pickup on 14 nov from ORD to MDW", "book a ride", "kal subah 5 baje ORD se MDW gaadi
+chahiye"). Each later message in the same conversation goes to the booking until it is
+booked, cancelled ("cancel"), or left idle for 30 minutes (`CHAT_BOOKING_TTL_SECONDS`).
+The server keeps the booking's state, so:
+
+- **Send the same `conversation_id` with every message of a conversation**, and a new one
+  for a new chat. Bookings are keyed by user and `conversation_id`.
+- The text asks one question at a time. Nothing is booked until the user answers "yes" to
+  the full summary, and a failed booking is never resent automatically.
+- The booking calls the 1800limo API with the user's own bearer token, so it sees exactly
+  what the web app would show that user. Guests are asked to sign in; drivers are told to
+  use the website or app.
+
+The reply also carries `booking`:
+
+```json
+"booking": {
+  "active": true,
+  "cards_kind": "vehicle",
+  "cards": [
+    {
+      "number": 1,
+      "title": "2024 Hyundai Tucson",
+      "subtitle": "Mid-Size SUV",
+      "details": ["4 pax / 4 bags"],
+      "price": "from $104.76",
+      "images": ["https://.../v-501-a.jpg", "https://.../v-501-b.jpg"]
+    }
+  ],
+  "replies": ["Back", "Cancel"]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `active` | `true` while the next message goes to the booking; `false` once it is booked or stopped |
+| `cards_kind` | `"category"` or `"vehicle"` when this step is a choice of vehicles, else `null` |
+| `cards` | One per option, with photos (`images`, main photo first, may be empty). The cards **replace** the numbered list in `content`; picking one sends its `number` as the next user message |
+| `replies` | Suggested answers to show as buttons (`"Yes"`, `"No"`, `"One way"`, `"Cancel"`, ...); sending one as the user message answers the question |
+
+Other choices (which airport, which airline, ...) stay as numbered lists in `content`;
+the user answers with the number. Only show `cards` and `replies` on the latest message
+while `active` is `true`.
+
 #### Response with `stream: true` (Server-Sent Events)
 
 `200` with headers:
@@ -229,6 +277,7 @@ Events arrive in this order:
 |---|---|---|
 | `start` | `{"conversation_id": "...", "model": "..."}` | Immediately, once |
 | `data` | Same object as `data` above | Once, before the first `delta`, only for data answers |
+| `booking` | Same object as `booking` above | Once, before the first `delta`, only for booking steps |
 | `delta` | `{"content": "..."}` | Once per text chunk; concatenate them |
 | `done` | `{"usage": {...}, "timings": {...}, "reply_type": "..."}` | Once, on success (same shapes as above) |
 | `error` | `{"code": "...", "message": "..."}` | Instead of `done`, if generation fails |

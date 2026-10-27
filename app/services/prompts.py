@@ -96,6 +96,10 @@ _CAN_LOOK_UP = """- You can look up the user's 1800Limo data (read only); that h
 - You cannot create, change or cancel bookings. Point the user to the app or customer support for that."""
 _CANNOT_LOOK_UP = """- You cannot yet look up, create, change or cancel bookings, prices or account data.
   If asked, say so and point the user to the app or to customer support."""
+_CANNOT_CREATE = "create, change or cancel bookings"
+_CAN_BOOK = """- To book a ride here, the user types the trip, for example "book a ride from ORD to
+  233 S Wacker Dr tomorrow at 5 pm"; the booking steps then take over. You cannot change or cancel
+  bookings: point the user to the app or customer support for that. Never say a ride is booked."""
 
 _NO_TECH = "Do not mention SQL, queries, tables, columns or databases. Never invent records or numbers."
 _ANSWER_VALUE = f"Reply in one short sentence with this number. {_NO_TECH}"
@@ -199,8 +203,9 @@ SCOPED_SQL_RULE = """- "I", "my", "me" mean the user, whose rows are already the
 """
 
 
-def build_system_prompt(requester: Requester, *, can_look_up: bool = False) -> str:
-    """Persona personalised by role and first name."""
+def build_system_prompt(requester: Requester, *, can_look_up: bool = False, can_book: bool = False) -> str:
+    """Persona personalised by role and first name. ``can_book``: the chat's booking flow is open
+    to this user, so the model explains how to start it instead of sending them elsewhere."""
     role_context = _ROLE_CONTEXT.get(requester.role, f"The user's role is {requester.role}.")
     fallback = "a website visitor" if requester.is_guest else "a signed-in user"
     name = requester.display_name
@@ -210,9 +215,21 @@ def build_system_prompt(requester: Requester, *, can_look_up: bool = False) -> s
     return _BASE_PROMPT.format(
         role_context=role_context,
         name=name or fallback,
-        capabilities=_CAN_LOOK_UP if can_look_up else _CANNOT_LOOK_UP,
+        capabilities=_capabilities(can_look_up=can_look_up, can_book=can_book),
         greeting=greeting,
     )
+
+
+def _capabilities(*, can_look_up: bool, can_book: bool) -> str:
+    text = _CAN_LOOK_UP if can_look_up else _CANNOT_LOOK_UP
+    if not can_book:
+        return text
+    lines = text.split("\n")
+    if can_look_up:  # its last line is the "cannot create, change or cancel" one
+        lines = lines[:-1]
+    else:
+        lines[0] = lines[0].replace(_CANNOT_CREATE, "change or cancel bookings")
+    return "\n".join([*lines, _CAN_BOOK])
 
 
 def build_data_context(
