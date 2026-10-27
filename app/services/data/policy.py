@@ -1,9 +1,12 @@
 """Which tables, columns and rows a requester may query.
 
 - admin / sub_admin: every table except ``DENIED_TABLES``, all non-sensitive columns.
-- rider: their own bookings (``tbl_reservations.acc_id``) and what hangs off them.
+- rider: bookings they made (``tbl_reservations.acc_id``) or ride in as a travel agent's passenger
+  (``travel_client_id``), and what hangs off them.
 - driver / affiliate_driver: bookings assigned to them (``driver_id``) or to their
   company (``affiliate_id``), their vehicles and their ratings.
+- travel_agent: the bookings they made (``acc_id``) and the name and contact details of
+  the passengers they booked for (``travel_client_id``).
 - every other role and guests: no data access (their ownership rules aren't modelled yet).
 
 Scopes are SQL conditions built here from ids looked up in the database, never from
@@ -26,7 +29,8 @@ from app.services.requester import Requester
 FULL_ACCESS_ROLES = frozenset({"admin", "sub_admin"})
 RIDER_ROLES = frozenset({"rider"})
 DRIVER_ROLES = frozenset({"driver", "affiliate_driver"})
-DATA_ROLES = FULL_ACCESS_ROLES | RIDER_ROLES | DRIVER_ROLES
+TRAVEL_AGENT_ROLES = frozenset({"travel_agent"})
+DATA_ROLES = FULL_ACCESS_ROLES | RIDER_ROLES | DRIVER_ROLES | TRAVEL_AGENT_ROLES
 
 # Credentials, sessions, raw logs and payment instruments: never queryable, even by admins.
 DENIED_TABLES = frozenset(
@@ -37,7 +41,7 @@ DENIED_TABLES = frozenset(
         "migrations", "jobs", "failed_jobs", "laravel_logs", "error_logs", "mobile_api_error_logs",
         "android_app_config", "settings", "tbl_email_logs", "tbl_system_email_logs", "tbl_comm_content_logs",
         "reminder_email_logs", "push_notifications", "mobile_analytics", "deleted_users", "tbl_cms",
-        "tbl_vehicle_categories_old", "tbl_lose_affiliates", "payment_logs", "stripe_transfers",
+        "tbl_vehicle_categories_old", "payment_logs", "stripe_transfers",
     }
 )  # fmt: skip
 SENSITIVE_COLUMN = re.compile(
@@ -45,6 +49,9 @@ SENSITIVE_COLUMN = re.compile(
     r"ssn|raw_stripe_data|charge_object|licen[cs]e_number|background_check",
     re.IGNORECASE,
 )
+# Not secret, but never usable for an answer: Stripe status rules aren't defined yet (questions
+# about Stripe get a fixed reply), and quote_amount is always empty (totals are tbl_order.grand_total).
+UNUSABLE_COLUMN = re.compile(r"stripe|^quote_amount$", re.IGNORECASE)
 
 _CUSTOMER_BOOKING_COLUMNS = (
     "id", "conf_id", "service_type", "transfer_type", "reservation_type", "pickup", "pickup_address",
@@ -54,10 +61,12 @@ _CUSTOMER_BOOKING_COLUMNS = (
     "vehicle_type", "number_of_hours", "number_of_vehicles", "distance", "duration", "booking_status",
     "payment_status", "cancellation_reason", "status", "created_at", "updated_at",
 )  # fmt: skip
-_RIDER_BOOKING_COLUMNS = (*_CUSTOMER_BOOKING_COLUMNS, "quote_amount", "charged_amount")
+_RIDER_BOOKING_COLUMNS = (*_CUSTOMER_BOOKING_COLUMNS, "charged_amount")
 _DRIVER_BOOKING_COLUMNS = (
     *_CUSTOMER_BOOKING_COLUMNS, "driver_id", "affiliate_id", "vehicle_id", "affiliate_charged_amount",
 )  # fmt: skip
+_TRAVEL_AGENT_BOOKING_COLUMNS = (*_RIDER_BOOKING_COLUMNS, "travel_client_id")
+_PASSENGER_ACCOUNT_COLUMNS = ("id", "first_name", "last_name", "mobileIsd", "mobile", "email")
 _VEHICLE_CATEGORY_COLUMNS = ("id", "vehicle_cat_name", "seats", "luggage", "status")
 
 
@@ -77,6 +86,7 @@ class AccessPolicy:
     tables: Mapping[str, TableAccess] | None
     audience: str  # one line for the prompt describing whose data this is
     scoped: bool = False  # rows are pre-filtered to the requester
+    account_ids: tuple[int, ...] = ()  # the requester's tbl_account ids (scoped roles)
 
     def access(self, table: str) -> TableAccess | None:
         if table in DENIED_TABLES:
@@ -92,7 +102,11 @@ class AccessPolicy:
             return []
         allowed = set(access.columns) if access.columns is not None else None
         return [
-            c for c in live_columns if not SENSITIVE_COLUMN.search(c) and (allowed is None or c in allowed)
+            c
+            for c in live_columns
+            if not SENSITIVE_COLUMN.search(c)
+            and not UNUSABLE_COLUMN.search(c)
+            and (allowed is None or c in allowed)
         ]
 
 
@@ -109,26 +123,55 @@ def _bookings_where(condition: exp.Condition) -> exp.Condition:
     )
 
 
+def _customer_tables(own: exp.Condition, booking_columns: tuple[str, ...]) -> dict[str, TableAccess]:
+    """Tables of a customer who made bookings (``own`` filters tbl_reservations)."""
+    return {
+        "tbl_reservations": TableAccess(booking_columns, own),
+        "tbl_invoices": TableAccess(("id", "reservation_id", "status", "created_at"), _bookings_where(own)),
+        "tbl_order": TableAccess(
+            ("id", "reservation_id", "sub_total", "grand_total", "currency", "created_at"),
+            _bookings_where(own),
+        ),
+        "tbl_passengers": TableAccess(
+            ("id", "reservation_id", "passenger_name", "created_at"), _bookings_where(own)
+        ),
+        "tbl_vehicle_categories": TableAccess(_VEHICLE_CATEGORY_COLUMNS),
+    }
+
+
 def rider_policy(account_ids: Sequence[int]) -> AccessPolicy:
+    # A customer books themselves (acc_id) or is the passenger a travel agent booked for.
+    own = (
+        exp.or_(_ids_in("acc_id", account_ids), _ids_in("travel_client_id", account_ids))
+        if account_ids
+        else exp.false()
+    )
+    return AccessPolicy(
+        full_access=False,
+        tables=_customer_tables(own, _RIDER_BOOKING_COLUMNS),
+        audience="the signed-in rider. Every table already contains only their own bookings and records",
+        scoped=True,
+        account_ids=tuple(account_ids),
+    )
+
+
+def travel_agent_policy(account_ids: Sequence[int]) -> AccessPolicy:
     own = _ids_in("acc_id", account_ids)
+    passengers = exp.column("id").isin(
+        query=exp.select("travel_client_id").from_("tbl_reservations").where(own.copy())
+    )
     return AccessPolicy(
         full_access=False,
         tables={
-            "tbl_reservations": TableAccess(_RIDER_BOOKING_COLUMNS, own),
-            "tbl_invoices": TableAccess(
-                ("id", "reservation_id", "status", "created_at"), _bookings_where(own)
-            ),
-            "tbl_order": TableAccess(
-                ("id", "reservation_id", "sub_total", "grand_total", "currency", "created_at"),
-                _bookings_where(own),
-            ),
-            "tbl_passengers": TableAccess(
-                ("id", "reservation_id", "passenger_name", "created_at"), _bookings_where(own)
-            ),
-            "tbl_vehicle_categories": TableAccess(_VEHICLE_CATEGORY_COLUMNS),
+            **_customer_tables(own, _TRAVEL_AGENT_BOOKING_COLUMNS),
+            "tbl_account": TableAccess(_PASSENGER_ACCOUNT_COLUMNS, passengers),
         },
-        audience="the signed-in rider. Every table already contains only their own bookings and records",
+        audience=(
+            "the signed-in travel agent. Every table already contains only the bookings they made, and "
+            "tbl_account only the passengers they booked for; join tbl_account only to name passengers"
+        ),
         scoped=True,
+        account_ids=tuple(account_ids),
     )
 
 
@@ -156,12 +199,15 @@ def driver_policy(account_ids: Sequence[int], driver_ids: Sequence[int]) -> Acce
                 ("id", "booking_id", "rating", "feedback", "created_at"), _ids_in("driver_id", driver_ids)
             ),
             "tbl_vehicle_categories": TableAccess(_VEHICLE_CATEGORY_COLUMNS),
+            # Only the currency, so income totals can be split by it; not what the customer paid.
+            "tbl_order": TableAccess(("id", "reservation_id", "currency"), _bookings_where(own)),
         },
         audience=(
             "the signed-in driver/affiliate. Every table already contains only the trips assigned to them "
             "or their company, their own vehicles and their own ratings"
         ),
         scoped=True,
+        account_ids=tuple(account_ids),
     )
 
 
@@ -207,6 +253,8 @@ class PolicyResolver:
             account_ids = list((await conn.execute(_ACCOUNT_IDS, {"user_id": user_id})).scalars())
             if role in RIDER_ROLES:
                 return rider_policy(account_ids)
+            if role in TRAVEL_AGENT_ROLES:
+                return travel_agent_policy(account_ids)
             driver_ids = (
                 list((await conn.execute(_DRIVER_IDS, {"account_ids": account_ids})).scalars())
                 if account_ids

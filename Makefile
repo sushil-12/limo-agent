@@ -4,7 +4,7 @@ BIN    := $(VENV)/bin
 OLLAMA_MODEL ?= $(shell grep -E '^OLLAMA_MODEL=' .env 2>/dev/null | cut -d= -f2 || true)
 OLLAMA_MODEL := $(or $(OLLAMA_MODEL),llama3.1:8b)
 
-.PHONY: install dev test test-integration lint format pull-model
+.PHONY: install dev shell test test-integration lint format pull-model
 
 install:  ## Create the virtualenv and install pinned dev dependencies
 	$(PYTHON) -m venv $(VENV)
@@ -12,8 +12,11 @@ install:  ## Create the virtualenv and install pinned dev dependencies
 	$(BIN)/pip install -r requirements-dev.txt
 
 dev:  ## Run the API with auto-reload (reads .env)
-	$(BIN)/uvicorn --factory app.main:create_app --reload --host 127.0.0.1 --port 9000 \
+	$(BIN)/uvicorn --factory app.main:create_app --reload --host 0.0.0.0 --port 9000 \
 		--loop uvloop --http httptools --no-access-log
+
+shell:  ## Interactive SQL shell to ask and teach the data agent (ARGS="--role rider --user-id 1771")
+	$(BIN)/python -m app.cli.sql_shell $(ARGS)
 
 test:  ## Unit/API tests (no Ollama or MySQL needed)
 	$(BIN)/pytest

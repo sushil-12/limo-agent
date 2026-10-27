@@ -8,6 +8,7 @@ who may query data, the same call also answers DATA when a database lookup is ne
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Literal
 
 from app.core.logging import get_logger
@@ -37,15 +38,25 @@ class TopicGuard:
         return await self.classify(message, previous_reply) != "off"
 
     async def classify(
-        self, message: str, previous_reply: str | None = None, *, allow_data: bool = False
+        self,
+        message: str,
+        previous_reply: str | None = None,
+        *,
+        allow_data: bool = False,
+        earlier: Sequence[str] = (),
     ) -> Verdict:
-        """Return "on", "off" or (only when ``allow_data``) "data". Raises LLMError if the call fails."""
+        """Return "on", "off" or (only when ``allow_data``) "data". Raises LLMError if the call fails.
+
+        ``earlier`` are the user's previous questions: a short follow-up ("how many in
+        washington") is only clearly about 1800Limo next to them.
+        """
         if not self._block_off_topic and not allow_data:
             return "on"
+        content = build_classifier_input(message, previous_reply, allow_data=allow_data, earlier=earlier)
         result = await self._provider.chat(
             [
                 LLMMessage("system", ROUTER_PROMPT if allow_data else TOPIC_CLASSIFIER_PROMPT),
-                LLMMessage("user", build_classifier_input(message, previous_reply, allow_data=allow_data)),
+                LLMMessage("user", content),
             ],
             max_tokens=_MAX_TOKENS,
             temperature=0.0,

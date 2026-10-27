@@ -124,6 +124,11 @@ class PassportTokenVerifier:
 
         Raises ServiceUnavailableError if the database cannot be reached.
         """
+        result = await self.authenticate(token)
+        return result if isinstance(result, CurrentUser) else None
+
+    async def authenticate(self, token: str) -> CurrentUser | str:
+        """Like ``verify``, but a rejected token returns the reason (e.g. "role_not_allowed")."""
         cache_key = hashlib.sha256(token.encode()).hexdigest()
         cached = self._cache.get(cache_key)
         if cached is not None:
@@ -136,7 +141,7 @@ class PassportTokenVerifier:
             user = await self._load_user(claims)
         except TokenRejectedError as exc:
             logger.info("auth_rejected", reason=str(exc))
-            return None
+            return str(exc)
 
         ttl = min(self._cache_ttl, claims.expires_at - time.time())
         if ttl > 0:

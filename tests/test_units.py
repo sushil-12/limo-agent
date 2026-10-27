@@ -19,7 +19,8 @@ from app.db.session import build_database_url, session_init_sql
 from app.llm.base import LLMMessage
 from app.llm.ollama import OllamaProvider, model_matches
 from app.services.context_window import fit_history
-from app.services.requester import safe_display_name
+from app.services.prompts import build_system_prompt
+from app.services.requester import Requester, safe_display_name
 
 
 async def test_rate_limiter_window() -> None:
@@ -178,3 +179,16 @@ def test_empty_env_values_are_unset(monkeypatch: pytest.MonkeyPatch, tmp_path: A
     assert settings.service_api_key is None
     assert settings.docs_enabled is True
     assert settings.passport_public_key_pem() == "PEM"
+
+
+@pytest.mark.parametrize("role", ["admin", "rider", "driver", "travel_agent", "corporate"])
+def test_system_prompt_greets_signed_in_users_by_name(role: str) -> None:
+    prompt = build_system_prompt(Requester(role=role, display_name="Joseph", user_id=1), can_look_up=True)
+    assert "greet them back by name" in prompt
+    assert '"Hello Joseph!' in prompt
+
+
+def test_system_prompt_without_a_name_has_no_greeting_rule() -> None:
+    prompt = build_system_prompt(Requester(role="rider", display_name=None, user_id=1))
+    assert "greet them back by name" not in prompt
+    assert "a signed-in user" in prompt

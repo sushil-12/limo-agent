@@ -22,6 +22,7 @@ import respx
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config import Settings
@@ -45,7 +46,8 @@ CREATE TABLE oauth_access_tokens (id TEXT PRIMARY KEY, user_id INTEGER, client_i
 CREATE TABLE tbl_driver_setting (id INTEGER PRIMARY KEY, acc_id INTEGER, first_name TEXT, otp TEXT);
 CREATE TABLE tbl_reservations (id INTEGER PRIMARY KEY, conf_id TEXT, acc_id INTEGER, driver_id INTEGER,
                                affiliate_id INTEGER, booking_status TEXT, payment_status TEXT,
-                               pickup_date DATE, quote_amount REAL, email_token TEXT, status TEXT);
+                               pickup_date DATE, quote_amount REAL, email_token TEXT, status TEXT,
+                               travel_client_id INTEGER);
 """
 
 SEED = """
@@ -62,11 +64,11 @@ INSERT INTO oauth_clients VALUES (2, NULL, 1);
 INSERT INTO oauth_clients VALUES (3, 'drivers', 0);
 INSERT INTO tbl_driver_setting VALUES (1, 2, 'Dev', '9999');
 INSERT INTO tbl_reservations VALUES
-    (1, 'C-1001', 1, NULL, NULL, 'pending', 'unpaid', '2026-10-20', 120, 't1', 'enable'),
-    (2, 'C-1002', 1, NULL, NULL, 'pending', 'unpaid', '2026-10-22', 80, 't2', 'enable'),
-    (3, 'C-1003', 1, 1, NULL, 'ended', 'paid', '2026-09-01', 95, 't3', 'enable'),
-    (4, 'C-1004', 3, 1, NULL, 'pending', 'unpaid', '2026-10-25', 60, 't4', 'enable'),
-    (5, 'C-1005', 3, NULL, NULL, 'pending', 'unpaid', '2026-10-26', 70, 't5', 'disable');
+    (1, 'C-1001', 1, NULL, NULL, 'pending', 'unpaid', '2026-10-20', 120, 't1', 'enable', NULL),
+    (2, 'C-1002', 1, NULL, NULL, 'pending', 'unpaid', '2026-10-22', 80, 't2', 'enable', NULL),
+    (3, 'C-1003', 1, 1, NULL, 'ended', 'paid', '2026-09-01', 95, 't3', 'enable', NULL),
+    (4, 'C-1004', 3, 1, NULL, 'pending', 'unpaid', '2026-10-25', 60, 't4', 'enable', NULL),
+    (5, 'C-1005', 3, NULL, NULL, 'pending', 'unpaid', '2026-10-26', 70, 't5', 'disable', NULL);
 """
 
 
@@ -188,6 +190,19 @@ def ollama() -> Iterator[respx.MockRouter]:
         yield router
 
 
+def _mysql_functions(dbapi_connection: Any, _record: Any) -> None:
+    """MySQL functions the fixed money and people queries use, for the SQLite stand-in."""
+
+    def field(value: Any, *options: Any) -> int:
+        return options.index(value) + 1 if value in options else 0
+
+    dbapi_connection.create_function("FIELD", -1, field)
+    dbapi_connection.create_function("JSON_UNQUOTE", 1, lambda value: value)
+    dbapi_connection.create_function(
+        "CONCAT_WS", -1, lambda sep, *parts: sep.join(str(p) for p in parts if p is not None)
+    )
+
+
 @pytest.fixture
 def client_factory(
     settings_factory: Callable[..., Settings], db_path: Path, ollama: respx.MockRouter
@@ -196,6 +211,7 @@ def client_factory(
 
     def build(**overrides: Any) -> TestClient:
         engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+        event.listen(engine.sync_engine, "connect", _mysql_functions)
         app = create_app(settings_factory(**overrides), engine=engine)
         client = TestClient(app)
         client.__enter__()

@@ -21,6 +21,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 _MAX_ENUM_VALUES = 20
 _RELATIVE_CUTOFF = 0.4  # drop tables scoring under 40% of the best match
+# Bookings that need no more work: excluded from "active", "upcoming" and "needs work".
+CLOSED_STATUSES = "'cancelled', 'rejected', 'refund', 'finalized', 'comped', 'non_payable'"
 _COLUMNS_SQL = text(
     """
     SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE
@@ -50,11 +52,13 @@ class TableNotes:
     column_notes: Mapping[str, str] = field(default_factory=dict)
     joins: tuple[str, ...] = ()
     list_columns: tuple[str, ...] = ()  # text lists of numbers; the guard rejects = / LIKE on them
+    companions: tuple[str, ...] = ()  # picked along with this table: answers usually need them
 
 
 NOTES: dict[str, TableNotes] = {
     "tbl_reservations": TableNotes(
-        "THE bookings table (reservations, rides, trips). One row per booking.",
+        "THE bookings table (reservations, rides, trips). One row per booking (one leg of a trip). "
+        f"Closed bookings: booking_status IN ({CLOSED_STATUSES}).",
         keywords=(
             "booking",
             "reservation",
@@ -71,14 +75,19 @@ NOTES: dict[str, TableNotes] = {
             "quote",
             "status",
             "assigned",
+            "unassigned",
             "completed",
+            "work",
         ),
         key_columns=(
             "id",
-            "conf_id",
             "acc_id",
-            "driver_id",
+            "account_type",
+            "travel_client_id",
             "affiliate_id",
+            "lose_affiliate",
+            "driver_id",
+            "is_pending_affiliate",
             "vehicle_type",
             "booking_status",
             "payment_status",
@@ -87,39 +96,94 @@ NOTES: dict[str, TableNotes] = {
             "pickup_date",
             "pickup_time",
             "pickup",
+            "pickup_address",
             "dropoff",
+            "dropoff_address",
             "total_passengers",
-            "quote_amount",
             "charged_amount",
-            "affiliate_charged_amount",
+            "share_array",
             "status",
+            "created_by_role",
             "created_at",
         ),
         column_notes={
-            "conf_id": "confirmation number shown to customers",
-            "acc_id": "customer, = tbl_account.id",
-            "driver_id": "= tbl_driver_setting.id",
-            "affiliate_id": "affiliate/fleet operator, = tbl_account.id (tbl_affiliate_company.acc_id)",
+            "id": "THE booking number shown to people (#2096). conf_id is always empty: never use it",
+            "acc_id": "the client who booked, = tbl_account.id",
+            "account_type": "'individual' or 'travel_planner' (booked by a travel agent)",
+            "travel_client_id": (
+                "the passenger a travel agent booked for, = tbl_account.id. Not the user: never filter on it "
+                "for 'my' bookings"
+            ),
+            # Riders don't see these columns, so the assignment rule lives in their notes.
+            "affiliate_id": (
+                "affiliate serving it, = tbl_account.id = tbl_affiliate_company.acc_id. A booking is "
+                "served by EITHER affiliate_id OR lose_affiliate; empty = NULL or 0. "
+                "Needs work / unassigned = COALESCE(affiliate_id, 0) = 0 AND "
+                "COALESCE(lose_affiliate, 0) = 0 (AND, never OR) AND not closed AND "
+                "pickup_date >= CURDATE() (drop only the date filter when past ones are asked for)"
+            ),
+            "lose_affiliate": "external operator entered by admin, = tbl_lose_affiliates.id",
+            "driver_id": (
+                "affiliate's driver, = tbl_driver_setting.id. Always NULL for lose-affiliate bookings, so an "
+                "empty driver_id does NOT mean unassigned"
+            ),
+            "is_pending_affiliate": "1 = the affiliate has not finished onboarding",
             "vehicle_type": "= tbl_vehicle_categories.id",
-            "booking_status": "trip progress; 'ended'/'finalized' mean completed",
+            "booking_status": (
+                "trip progress and payment state mixed. Completed rides: 'passenger_drop', 'ended', "
+                "'finalized', 'paid', 'paid_cash', 'partial_paid'"
+            ),
+            "payment_status": "'paid', 'unpaid', 'partial_paid', 'refund', 'partial_refund', 'paid_cash'",
             "pickup_date": "scheduled pickup day; upcoming = pickup_date >= CURDATE()",
-            "pickup": "pickup place name; pickup_address is the full address",
-            "quote_amount": "price quoted to the customer",
-            "charged_amount": "amount charged to the customer",
-            "affiliate_charged_amount": "amount paid to the affiliate/driver",
+            "pickup": (
+                "blank for airport pickups: always select COALESCE(NULLIF(pickup, ''), pickup_address). "
+                "Same for dropoff. Pickups in a place (city, airport, street): "
+                "CONCAT_WS(' ', pickup, pickup_address) LIKE '%chicago%'. Airport codes start the text "
+                "('ORD - Chicago Ohare Intl'): match them as COALESCE(NULLIF(pickup, ''), pickup_address) "
+                "LIKE 'ORD %', never '%ORD%' (matches Oxford)"
+            ),
+            "transfer_type": (
+                "'airport_to_city', 'city_to_airport', 'city_to_city', 'airport_to_airport', "
+                "'city_to_cruise', 'cruise_to_city', 'cruise_to_airport'"
+            ),
+            "charged_amount": "amount PRE-charged to the customer, not the booking total",
+            "share_array": (
+                "JSON split of the money (MariaDB: no -> / ->> operator): "
+                "JSON_UNQUOTE(JSON_EXTRACT(share_array, '$.affiliateShare')) = what the affiliate gets; also "
+                "'$.adminShare' (admin profit), '$.travelAgentShare', '$.grandTotal', '$.baseRate', "
+                "'$.stripeFee', '$.deducted_admin_share'. A missing key = 0 (COALESCE). Read and SUM the "
+                "stored values, never compute one share from others. Can be empty"
+            ),
             "status": "'enable' = active row, 'disable' = deleted; filter status = 'enable'",
             "created_at": "when the booking was made",
         },
         joins=(
             "tbl_reservations.acc_id = tbl_account.id",
+            "tbl_reservations.travel_client_id = tbl_account.id",
             "tbl_reservations.driver_id = tbl_driver_setting.id",
             "tbl_reservations.vehicle_type = tbl_vehicle_categories.id",
             "tbl_reservations.affiliate_id = tbl_affiliate_company.acc_id",
+            "tbl_reservations.lose_affiliate = tbl_lose_affiliates.id",
+            "tbl_order.reservation_id = tbl_reservations.id",
+            "tbl_travel_planner.acc_id = tbl_reservations.acc_id",
         ),
     ),
     "tbl_account": TableNotes(
         "Profiles of every person (customers, drivers, affiliates, agents). user_id = users.id.",
-        keywords=("customer", "client", "account", "profile", "rider", "passenger", "name", "city", "signup"),
+        keywords=(
+            "customer",
+            "client",
+            "account",
+            "profile",
+            "rider",
+            "passenger",
+            "name",
+            "city",
+            "signup",
+            "address",
+            "located",
+            "location",
+        ),
         key_columns=(
             "id",
             "user_id",
@@ -127,12 +191,21 @@ NOTES: dict[str, TableNotes] = {
             "last_name",
             "email",
             "mobile",
+            "address",
             "city",
             "state",
+            "zip",
             "country",
             "status",
             "created_at",
         ),
+        column_notes={
+            "address": (
+                "full street address with city, e.g. '2411 W Fargo Ave, Chicago, IL 60645, USA'. City/area "
+                "searches: CONCAT_WS(' ', address, street, city, state, zip) LIKE '%chicago%'"
+            ),
+            "city": "often holds the county ('Cook County'), never search it alone; search address too",
+        },
         joins=("tbl_account.user_id = users.id",),
     ),
     "users": TableNotes(
@@ -155,7 +228,9 @@ NOTES: dict[str, TableNotes] = {
     ),
     "tbl_user_roles": TableNotes("Role names for users.role.", keywords=("role",)),
     "tbl_driver_setting": TableNotes(
-        "Drivers (chauffeurs). acc_id = the driver's tbl_account.id.",
+        "Drivers (chauffeurs) of affiliates. acc_id = their AFFILIATE's tbl_account.id. Phone = cell_isd + "
+        "cell_number. Who drives a booking: driver_id set -> this table; else is_pending_affiliate = 1 -> "
+        "tbl_affiliate_company; else lose_affiliate set -> tbl_lose_affiliates; else unassigned.",
         keywords=("driver", "chauffeur", "rating", "license", "suspended"),
         key_columns=(
             "id",
@@ -163,6 +238,7 @@ NOTES: dict[str, TableNotes] = {
             "first_name",
             "last_name",
             "email",
+            "cell_isd",
             "cell_number",
             "status",
             "starRatingValue",
@@ -175,7 +251,15 @@ NOTES: dict[str, TableNotes] = {
         ),
     ),
     "tbl_affiliate_company": TableNotes(
-        "Affiliates: limo companies/operators that fulfil rides. acc_id = owner's tbl_account.id.",
+        "Affiliates: registered limo companies that serve rides; they log in with their tbl_account. "
+        "acc_id = tbl_reservations.affiliate_id. Phone = cell_isd + cell_number "
+        "(else dispatchisd + dispatch). Affiliates in a place = badge city OR their account address: "
+        "(bc.name LIKE '%chicago%' OR CONCAT_WS(' ', a.address, a.street, a.city, a.state, a.zip) "
+        "LIKE '%chicago%'), joining tbl_account a ON a.id = acc_id and LEFT JOIN tbl_badge_cities bc "
+        "ON bc.id = badge_city. Label each match as area: 'X badge, based in X' (both), 'X badge, based "
+        "outside X' (badge only, e.g. a suburb), 'Based in X, no X badge' (address only); town = "
+        "TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(a.address, ',', -3), ',', 1)). Break counts down by area "
+        "and account_approval.",
         keywords=(
             "affiliate",
             "company",
@@ -194,9 +278,13 @@ NOTES: dict[str, TableNotes] = {
             "company_name",
             "affiliate_type",
             "badge_city",
-            "approved",
+            "cell_isd",
+            "cell_number",
+            "dispatchisd",
+            "dispatch",
             "step_completed",
             "account_approval",
+            "approved",
             "created_at",
         ),
         column_notes={
@@ -205,18 +293,34 @@ NOTES: dict[str, TableNotes] = {
             # form and never errors, unlike = / LIKE / JSON_CONTAINS.
             "step_completed": (
                 "onboarding steps 0-6 already done, stored as text like '[\"0\",\"1\"]' or '[0,1,3]'. "
-                "NEVER compare with = or LIKE. Step N done: "
-                "step_completed REGEXP '(^|[^0-9])N([^0-9]|$)'. "
-                "'on step N' = step N-1 done AND step N not done (NOT REGEXP). "
-                "All 7 steps done = account_approval 'accepted'"
+                "NEVER compare with = or LIKE. Step 3 done: "
+                "step_completed REGEXP '(^|[^0-9])3([^0-9]|$)' (put the step's digit where 3 is). "
+                "'on step 3' = step 2 done AND step 3 not done (NOT REGEXP). "
+                "All 7 steps done = account_approval 'accepted'. Onboarding affiliates = "
+                "account_approval = 'in-progress' (no REGEXP needed)"
             ),
-            "account_approval": "e.g. 'in-progress' while onboarding, 'accepted' once approved",
+            "account_approval": (
+                "THE approval status: 'in-progress' (onboarding), 'completed', 'accepted' (approved), "
+                "'rejected'"
+            ),
+            "approved": "misleading, NEVER use it; use account_approval",
+            "badge_city": (
+                "= tbl_badge_cities.id stored as text (a number, NEVER a city name): the city where they "
+                "hold a chauffeur badge"
+            ),
         },
         list_columns=("step_completed",),
         joins=(
             "tbl_affiliate_company.acc_id = tbl_account.id",
             "tbl_reservations.affiliate_id = tbl_affiliate_company.acc_id",
+            "tbl_affiliate_company.badge_city = tbl_badge_cities.id",
         ),
+        companions=("tbl_account", "tbl_badge_cities"),
+    ),
+    "tbl_badge_cities": TableNotes(
+        "City names for tbl_affiliate_company.badge_city (id -> name). Match cities by name, never by id.",
+        keywords=("badge", "city"),
+        key_columns=("id", "name", "status"),
     ),
     "tbl_vehicle_categories": TableNotes(
         "Vehicle types customers book (sedan, SUV, stretch limo, ...).",
@@ -259,9 +363,51 @@ NOTES: dict[str, TableNotes] = {
         joins=("tbl_invoices.reservation_id = tbl_reservations.id",),
     ),
     "tbl_order": TableNotes(
-        "Price breakdown totals per booking.",
-        keywords=("order", "total", "subtotal", "revenue", "amount", "price"),
-        joins=("tbl_order.reservation_id = tbl_reservations.id",),
+        "One order per booking: grand_total = the booking's total price. Currency: UPPER(currency) "
+        "(USD, EUR, GBP, ...). Never add up different currencies: GROUP BY UPPER(currency). "
+        "id is the ORDER id, NOT the booking number: find a booking's order by reservation_id.",
+        keywords=(
+            "order",
+            "total",
+            "subtotal",
+            "revenue",
+            "amount",
+            "price",
+            "sales",
+            "earning",
+            "currency",
+            "rate",
+            "tax",
+            "breakdown",
+            "charges",
+        ),
+        key_columns=("id", "reservation_id", "grand_total", "currency", "created_at"),
+        joins=(
+            "tbl_order.reservation_id = tbl_reservations.id",
+            "tbl_order_details.order_id = tbl_order.id",
+        ),
+    ),
+    "tbl_order_details": TableNotes(
+        "Price breakdown lines of an order. rate_label = line name (Base Rate, Tolls, ...). Only show rows "
+        "with amount <> 0. Lines do not add up to grand_total (pre-markup): never explain the gap. "
+        "A booking's lines: JOIN tbl_order o ON o.id = order_id WHERE o.reservation_id = <booking>.",
+        keywords=("breakdown", "base", "rate", "tax", "toll", "gratuity", "parking", "stop", "amenities"),
+        key_columns=("id", "order_id", "rate_category", "rate_label", "amount"),
+        column_notes={
+            "order_id": "= tbl_order.id, NEVER a booking number",
+            "rate_category": (
+                "'all_inclusive_rates', 'amenities', 'taxes', 'direct_taxes', 'misc'. Taxes = "
+                "rate_category IN ('taxes', 'direct_taxes')"
+            ),
+        },
+        joins=("tbl_order_details.order_id = tbl_order.id",),
+    ),
+    "tbl_lose_affiliates": TableNotes(
+        "Lose affiliates: external one-off operators an admin enters for a booking (no app login). "
+        "id = tbl_reservations.lose_affiliate. Phone = phone_isd + phone.",
+        keywords=("lose", "loose", "external", "operator", "outside", "farm", "farmout"),
+        key_columns=("id", "reservation_id", "name", "operator_name", "phone_isd", "phone", "email", "city"),
+        joins=("tbl_reservations.lose_affiliate = tbl_lose_affiliates.id",),
     ),
     "tbl_payment_details": TableNotes(
         "Payments and refunds recorded against bookings.",
@@ -296,9 +442,13 @@ NOTES: dict[str, TableNotes] = {
         keywords=("history", "status", "changed", "timeline"),
     ),
     "tbl_travel_planner": TableNotes(
-        "Travel agents (agencies). acc_id = agent's tbl_account.id.",
+        "Travel agents (agencies). Join on acc_id (= agent's tbl_account.id), NEVER on id. Onboarding has "
+        "steps 1-2; account_approval e.g. 'accepted', 'pending'.",
         keywords=("travel", "agent", "agency", "planner"),
-        joins=("tbl_travel_planner.acc_id = tbl_account.id",),
+        joins=(
+            "tbl_travel_planner.acc_id = tbl_account.id",
+            "tbl_travel_planner.acc_id = tbl_reservations.acc_id",
+        ),
     ),
     "tbl_airports": TableNotes("Airport reference list.", keywords=("airport", "iata", "code")),
     "tbl_airlines": TableNotes("Airline reference list.", keywords=("airline", "flight", "carrier")),
@@ -399,7 +549,13 @@ def select_tables(question: str, tables: Mapping[str, Iterable[str]], *, limit: 
         return ["tbl_reservations"] if "tbl_reservations" in tables else []
     cutoff = _RELATIVE_CUTOFF * max(scores.values())
     ranked = sorted((n for n in scores if scores[n] >= cutoff), key=lambda n: (-scores[n], n))
-    return ranked[:limit]
+    picked: list[str] = []
+    for name in ranked:
+        notes = NOTES.get(name)
+        for table in (name, *(notes.companions if notes else ())):
+            if table in tables and table not in picked:
+                picked.append(table)
+    return picked[:limit]
 
 
 def render_tables(tables: Collection[str], columns: Mapping[str, Collection[Column]]) -> str:
@@ -417,8 +573,8 @@ def render_tables(tables: Collection[str], columns: Mapping[str, Collection[Colu
         if rest:
             lines.append("  other columns: " + ", ".join(rest))
         for join in notes.joins if notes else ():
-            left, right = (side.strip().split(".")[0] for side in join.split("="))
-            if left in tables and right in tables:
+            sides = [side.strip().split(".") for side in join.split("=")]
+            if all(table in tables and col in {c.name for c in columns[table]} for table, col in sides):
                 lines.append(f"  join: {join}")
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)

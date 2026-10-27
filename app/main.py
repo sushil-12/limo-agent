@@ -31,8 +31,9 @@ from app.services.data.agent import DataAgent
 from app.services.data.catalog import SchemaCatalog
 from app.services.data.examples import load_examples
 from app.services.data.policy import PolicyResolver
-from app.services.data.query_log import QueryLog
+from app.services.data.query_log import JsonlLog
 from app.services.data.runner import QueryRunner
+from app.services.data.sql_cache import SqlCache
 from app.services.health_service import HealthService
 from app.services.schema_inspector import SchemaInspector
 from app.services.topic_guard import TopicGuard
@@ -80,7 +81,12 @@ def _build_data_agent(
         max_rows=settings.data_max_rows,
         max_attempts=settings.data_max_attempts,
         examples=load_examples(),
-        query_log=QueryLog(settings.data_query_log_path) if settings.data_query_log_path else None,
+        query_log=JsonlLog(settings.data_query_log_path) if settings.data_query_log_path else None,
+        sql_cache=(
+            SqlCache(settings.data_sql_cache_path, max_entries=settings.data_sql_cache_max_entries)
+            if settings.data_sql_cache_path
+            else None
+        ),
         log_content=log_content,
     )
 
@@ -121,6 +127,7 @@ def _build_lifespan(
             ),
             guest_max_messages=settings.guest_max_messages,
             data_agent=data_agent,
+            chat_log=JsonlLog(settings.chat_log_path) if settings.chat_log_path else None,
             log_content=log_content,
         )
         app.state.health_service = HealthService(

@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     max_request_body_bytes: int = Field(default=512 * 1024, gt=0)
     rate_limit_per_minute: int = Field(default=20, gt=0)
     topic_filter_enabled: bool = True  # classify each message; off-topic gets a fixed reply
+    # JSONL log of every chat turn: question, reply, reply type, timings. Empty = off.
+    chat_log_path: Path | None = None
 
     # --- Guest chat (no login; identified and rate limited by client IP) -----------
     guest_chat_enabled: bool = True
@@ -87,6 +89,10 @@ class Settings(BaseSettings):
     data_schema_cache_seconds: float = Field(default=900.0, ge=0)
     # JSONL log of every data question and the SQL written for it (no result rows). Empty = off.
     data_query_log_path: Path | None = None
+    # Learned question -> SQL pairs: a repeated question reuses its SQL instead of asking
+    # the model to write it again. Empty = off.
+    data_sql_cache_path: Path | None = None
+    data_sql_cache_max_entries: int = Field(default=5000, ge=1)
 
     # --- Auth (Laravel Passport) ---------------------------------------------------
     passport_public_key: SecretStr | None = None
@@ -96,6 +102,10 @@ class Settings(BaseSettings):
     auth_cache_ttl_seconds: float = Field(default=60.0, ge=0)
     auth_cache_max_entries: int = Field(default=10_000, gt=0)
 
+    # --- Booking from the shell (:book) ---------------------------------------------
+    limo_api_base_url: str = "https://api.1800limo.com/api/"  # the web app's environment.serverUrl
+    google_maps_api_key: SecretStr | None = None  # server-side Places (New) + Directions key
+
     @field_validator(
         "service_api_key",
         "expose_docs",
@@ -103,6 +113,9 @@ class Settings(BaseSettings):
         "passport_public_key_path",
         "ollama_sql_model",
         "data_query_log_path",
+        "data_sql_cache_path",
+        "chat_log_path",
+        "google_maps_api_key",
         mode="before",
     )
     @classmethod

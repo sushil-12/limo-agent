@@ -1,0 +1,1590 @@
+{
+	"AD": {
+		"countryName": "Andorra",
+		"currency": "EUR",
+		"currencyCountry": "AD",
+		"symbol": "€"
+	},
+	"AE": {
+		"countryName": "United Arab Emirates",
+		"currency": "AED",
+		"currencyCountry": "AE",
+		"symbol": "AED",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"AF": {
+		"countryName": "Afghanistan",
+		"currency": "AFN",
+		"currencyCountry": "AF",
+		"symbol": "Af"
+	},
+	"AG": {
+		"countryName": "Antigua and Barbuda",
+		"currency": "XCD",
+		"currencyCountry": "AG",
+		"symbol": "XCD"
+	},
+	"AI": {
+		"countryName": "Anguilla",
+		"currency": "XCD",
+		"currencyCountry": "AI",
+		"symbol": "XCD"
+	},
+	"AL": {
+		"countryName": "Albania",
+		"currency": "ALL",
+		"currencyCountry": "AL",
+		"symbol": "ALL",
+		"dateFormat": "yyyy-MM-dd"
+	},
+	"AM": {
+		"countryName": "Armenia",
+		"currency": "AMD",
+		"currencyCountry": "AM",
+		"symbol": "AMD"
+	},
+	"AO": {
+		"countryName": "Angola",
+		"currency": "AOA",
+		"currencyCountry": "AO",
+		"symbol": "AOA"
+	},
+	"AR": {
+		"countryName": "Argentina",
+		"currency": "ARS",
+		"currencyCountry": "AR",
+		"symbol": "AR$",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"AS": {
+		"countryName": "American Samoa",
+		"currency": "USD",
+		"currencyCountry": "AS",
+		"symbol": "$"
+	},
+	"AT": {
+		"countryName": "Austria",
+		"currency": "EUR",
+		"currencyCountry": "AT",
+		"symbol": "€",
+		"dateFormat": "dd.MM.yyyy"
+	},
+	"AU": {
+		"countryName": "Australia",
+		"currency": "AUD",
+		"currencyCountry": "AU",
+		"symbol": "AU$",
+		"dateFormat": "d/MM/yyyy"
+	},
+	"AW": {
+		"countryName": "Aruba",
+		"currency": "AWG",
+		"currencyCountry": "AW",
+		"symbol": "AWG"
+	},
+	"AX": {
+		"countryName": "Aland Islands",
+		"currency": "EUR",
+		"currencyCountry": "AX",
+		"symbol": "€"
+	},
+	"AZ": {
+		"countryName": "Azerbaijan",
+		"currency": "AZN",
+		"currencyCountry": "AZ",
+		"symbol": "man."
+	},
+	"BA": {
+		"countryName": "Bosnia and Herzegovina",
+		"currency": "BAM",
+		"currencyCountry": "BA",
+		"symbol": "KM",
+		"dateFormat": "yyyy-MM-dd"
+	},
+	"BB": {
+		"countryName": "Barbados",
+		"currency": "BBD",
+		"currencyCountry": "BB",
+		"symbol": "BBD"
+	},
+	"BD": {
+		"countryName": "Bangladesh",
+		"currency": "BDT",
+		"currencyCountry": "BD",
+		"symbol": "Tk"
+	},
+	"BE": {
+		"countryName": "Belgium",
+		"currency": "EUR",
+		"currencyCountry": "BE",
+		"symbol": "€",
+		"dateFormat": "d/MM/yyyy"
+	},
+	"BF": {
+		"countryName": "Burkina Faso",
+		"currency": "XOF",
+		"currencyCountry": "BF",
+		"symbol": "CFA"
+	},
+	"BG": {
+		"countryName": "Bulgaria",
+		"currency": "BGN",
+		"currencyCountry": "BG",
+		"symbol": "BGN",
+		"dateFormat": "yyyy-M-d"
+	},
+	"BH": {
+		"countryName": "Bahrain",
+		"currency": "BHD",
+		"currencyCountry": "BH",
+		"symbol": "BD",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"BI": {
+		"countryName": "Burundi",
+		"currency": "BIF",
+		"currencyCountry": "BI",
+		"symbol": "FBu"
+	},
+	"BJ": {
+		"countryName": "Benin",
+		"currency": "XOF",
+		"currencyCountry": "BJ",
+		"symbol": "CFA"
+	},
+	"BL": {
+		"countryName": "Saint Barthelemy",
+		"currency": "EUR",
+		"currencyCountry": "BL",
+		"symbol": "€"
+	},
+	"BM": {
+		"countryName": "Bermuda",
+		"currency": "BMD",
+		"currencyCountry": "BM",
+		"symbol": "BMD"
+	},
+	"BN": {
+		"countryName": "Brunei",
+		"currency": "BND",
+		"currencyCountry": "BN",
+		"symbol": "BN$"
+	},
+	"BO": {
+		"countryName": "Bolivia",
+		"currency": "BOB",
+		"currencyCountry": "BO",
+		"symbol": "Bs",
+		"dateFormat": "dd-MM-yyyy"
+	},
+	"BQ": {
+		"countryName": "Bonaire, Saint Eustatius and Saba ",
+		"currency": "USD",
+		"currencyCountry": "BQ",
+		"symbol": "$"
+	},
+	"BR": {
+		"countryName": "Brazil",
+		"currency": "BRL",
+		"currencyCountry": "BR",
+		"symbol": "R$",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"BS": {
+		"countryName": "Bahamas",
+		"currency": "BSD",
+		"currencyCountry": "BS",
+		"symbol": "BSD"
+	},
+	"BT": {
+		"countryName": "Bhutan",
+		"currency": "BTN",
+		"currencyCountry": "BT",
+		"symbol": "BTN"
+	},
+	"BV": {
+		"countryName": "Bouvet Island",
+		"currency": "NOK",
+		"currencyCountry": "BV",
+		"symbol": "Nkr"
+	},
+	"BW": {
+		"countryName": "Botswana",
+		"currency": "BWP",
+		"currencyCountry": "BW",
+		"symbol": "BWP"
+	},
+	"BY": {
+		"countryName": "Belarus",
+		"currency": "BYN",
+		"currencyCountry": "BY",
+		"symbol": "BYN",
+		"dateFormat": "d.M.yyyy"
+	},
+	"BZ": {
+		"countryName": "Belize",
+		"currency": "BZD",
+		"currencyCountry": "BZ",
+		"symbol": "BZ$"
+	},
+	"CA": {
+		"countryName": "Canada",
+		"currency": "CAD",
+		"currencyCountry": "CA",
+		"symbol": "CA$",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"CC": {
+		"countryName": "Cocos Islands",
+		"currency": "AUD",
+		"currencyCountry": "CC",
+		"symbol": "AU$"
+	},
+	"CD": {
+		"countryName": "Democratic Republic of the Congo",
+		"currency": "CDF",
+		"currencyCountry": "CD",
+		"symbol": "CDF"
+	},
+	"CF": {
+		"countryName": "Central African Republic",
+		"currency": "XAF",
+		"currencyCountry": "CF",
+		"symbol": "FCFA"
+	},
+	"CG": {
+		"countryName": "Republic of the Congo",
+		"currency": "XAF",
+		"currencyCountry": "CG",
+		"symbol": "FCFA"
+	},
+	"CH": {
+		"countryName": "Switzerland",
+		"currency": "CHF",
+		"currencyCountry": "CH",
+		"symbol": "CHF",
+		"dateFormat": "dd.MM.yyyy"
+	},
+	"CI": {
+		"countryName": "Ivory Coast",
+		"currency": "XOF",
+		"currencyCountry": "CI",
+		"symbol": "CFA"
+	},
+	"CK": {
+		"countryName": "Cook Islands",
+		"currency": "NZD",
+		"currencyCountry": "CK",
+		"symbol": "NZ$"
+	},
+	"CL": {
+		"countryName": "Chile",
+		"currency": "CLP",
+		"currencyCountry": "CL",
+		"symbol": "CL$",
+		"dateFormat": "dd-MM-yyyy"
+	},
+	"CM": {
+		"countryName": "Cameroon",
+		"currency": "XAF",
+		"currencyCountry": "CM",
+		"symbol": "FCFA"
+	},
+	"CN": {
+		"countryName": "China",
+		"currency": "CNY",
+		"currencyCountry": "CN",
+		"symbol": "CN¥",
+		"dateFormat": "yyyy-M-d"
+	},
+	"CO": {
+		"countryName": "Colombia",
+		"currency": "COP",
+		"currencyCountry": "CO",
+		"symbol": "CO$",
+		"dateFormat": "d/MM/yyyy"
+	},
+	"CR": {
+		"countryName": "Costa Rica",
+		"currency": "CRC",
+		"currencyCountry": "CR",
+		"symbol": "₡",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"CU": {
+		"countryName": "Cuba",
+		"currency": "CUP",
+		"currencyCountry": "CU",
+		"symbol": "CUP"
+	},
+	"CV": {
+		"countryName": "Cape Verde",
+		"currency": "CVE",
+		"currencyCountry": "CV",
+		"symbol": "CV$"
+	},
+	"CW": {
+		"countryName": "Curacao",
+		"currency": "ANG",
+		"currencyCountry": "CW",
+		"symbol": "ANG"
+	},
+	"CX": {
+		"countryName": "Christmas Island",
+		"currency": "AUD",
+		"currencyCountry": "CX",
+		"symbol": "AU$"
+	},
+	"CY": {
+		"countryName": "Cyprus",
+		"currency": "EUR",
+		"currencyCountry": "CY",
+		"symbol": "€",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"CZ": {
+		"countryName": "Czech Republic",
+		"currency": "CZK",
+		"currencyCountry": "CZ",
+		"symbol": "Kč",
+		"dateFormat": "d.M.yyyy"
+	},
+	"DE": {
+		"countryName": "Germany",
+		"currency": "EUR",
+		"currencyCountry": "DE",
+		"symbol": "€",
+		"dateFormat": "dd.MM.yyyy"
+	},
+	"DJ": {
+		"countryName": "Djibouti",
+		"currency": "DJF",
+		"currencyCountry": "DJ",
+		"symbol": "Fdj"
+	},
+	"DK": {
+		"countryName": "Denmark",
+		"currency": "DKK",
+		"currencyCountry": "DK",
+		"symbol": "Dkr",
+		"dateFormat": "dd-MM-yyyy"
+	},
+	"DM": {
+		"countryName": "Dominica",
+		"currency": "XCD",
+		"currencyCountry": "DM",
+		"symbol": "XCD"
+	},
+	"DO": {
+		"countryName": "Dominican Republic",
+		"currency": "DOP",
+		"currencyCountry": "DO",
+		"symbol": "RD$",
+		"dateFormat": "MM/dd/yyyy"
+	},
+	"DZ": {
+		"countryName": "Algeria",
+		"currency": "DZD",
+		"currencyCountry": "DZ",
+		"symbol": "DA",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"EC": {
+		"countryName": "Ecuador",
+		"currency": "USD",
+		"currencyCountry": "EC",
+		"symbol": "$",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"EE": {
+		"countryName": "Estonia",
+		"currency": "EUR",
+		"currencyCountry": "EE",
+		"symbol": "€",
+		"dateFormat": "d.MM.yyyy"
+	},
+	"EG": {
+		"countryName": "Egypt",
+		"currency": "EGP",
+		"currencyCountry": "EG",
+		"symbol": "EGP",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"EH": {
+		"countryName": "Western Sahara",
+		"currency": "MAD",
+		"currencyCountry": "EH",
+		"symbol": "MAD"
+	},
+	"ER": {
+		"countryName": "Eritrea",
+		"currency": "ERN",
+		"currencyCountry": "ER",
+		"symbol": "Nfk"
+	},
+	"ES": {
+		"countryName": "Spain",
+		"currency": "EUR",
+		"currencyCountry": "ES",
+		"symbol": "€",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"ET": {
+		"countryName": "Ethiopia",
+		"currency": "ETB",
+		"currencyCountry": "ET",
+		"symbol": "Br"
+	},
+	"FI": {
+		"countryName": "Finland",
+		"currency": "EUR",
+		"currencyCountry": "FI",
+		"symbol": "€",
+		"dateFormat": "d.M.yyyy"
+	},
+	"FJ": {
+		"countryName": "Fiji",
+		"currency": "FJD",
+		"currencyCountry": "FJ",
+		"symbol": "FJD"
+	},
+	"FK": {
+		"countryName": "Falkland Islands",
+		"currency": "FKP",
+		"currencyCountry": "FK",
+		"symbol": "FKP"
+	},
+	"FM": {
+		"countryName": "Micronesia",
+		"currency": "USD",
+		"currencyCountry": "FM",
+		"symbol": "$"
+	},
+	"FO": {
+		"countryName": "Faroe Islands",
+		"currency": "DKK",
+		"currencyCountry": "FO",
+		"symbol": "Dkr"
+	},
+	"FR": {
+		"countryName": "France",
+		"currency": "EUR",
+		"currencyCountry": "FR",
+		"symbol": "€",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"GA": {
+		"countryName": "Gabon",
+		"currency": "XAF",
+		"currencyCountry": "GA",
+		"symbol": "FCFA"
+	},
+	"GB": {
+		"countryName": "United Kingdom",
+		"currency": "GBP",
+		"currencyCountry": "GB",
+		"symbol": "£",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"GD": {
+		"countryName": "Grenada",
+		"currency": "XCD",
+		"currencyCountry": "GD",
+		"symbol": "XCD"
+	},
+	"GE": {
+		"countryName": "Georgia",
+		"currency": "GEL",
+		"currencyCountry": "GE",
+		"symbol": "GEL"
+	},
+	"GF": {
+		"countryName": "French Guiana",
+		"currency": "EUR",
+		"currencyCountry": "GF",
+		"symbol": "€"
+	},
+	"GG": {
+		"countryName": "Guernsey",
+		"currency": "GBP",
+		"currencyCountry": "GG",
+		"symbol": "£"
+	},
+	"GH": {
+		"countryName": "Ghana",
+		"currency": "GHS",
+		"currencyCountry": "GH",
+		"symbol": "GH₵"
+	},
+	"GI": {
+		"countryName": "Gibraltar",
+		"currency": "GIP",
+		"currencyCountry": "GI",
+		"symbol": "GIP"
+	},
+	"GL": {
+		"countryName": "Greenland",
+		"currency": "DKK",
+		"currencyCountry": "GL",
+		"symbol": "Dkr"
+	},
+	"GM": {
+		"countryName": "Gambia",
+		"currency": "GMD",
+		"currencyCountry": "GM",
+		"symbol": "GMD"
+	},
+	"GN": {
+		"countryName": "Guinea",
+		"currency": "GNF",
+		"currencyCountry": "GN",
+		"symbol": "FG"
+	},
+	"GP": {
+		"countryName": "Guadeloupe",
+		"currency": "EUR",
+		"currencyCountry": "GP",
+		"symbol": "€"
+	},
+	"GQ": {
+		"countryName": "Equatorial Guinea",
+		"currency": "XAF",
+		"currencyCountry": "GQ",
+		"symbol": "FCFA"
+	},
+	"GR": {
+		"countryName": "Greece",
+		"currency": "EUR",
+		"currencyCountry": "GR",
+		"symbol": "€",
+		"dateFormat": "d/M/yyyy"
+	},
+	"GS": {
+		"countryName": "South Georgia and the South Sandwich Islands",
+		"currency": "GBP",
+		"currencyCountry": "GS",
+		"symbol": "£"
+	},
+	"GT": {
+		"countryName": "Guatemala",
+		"currency": "GTQ",
+		"currencyCountry": "GT",
+		"symbol": "GTQ",
+		"dateFormat": "d/MM/yyyy"
+	},
+	"GU": {
+		"countryName": "Guam",
+		"currency": "USD",
+		"currencyCountry": "GU",
+		"symbol": "$"
+	},
+	"GW": {
+		"countryName": "Guinea-Bissau",
+		"currency": "XOF",
+		"currencyCountry": "GW",
+		"symbol": "CFA"
+	},
+	"GY": {
+		"countryName": "Guyana",
+		"currency": "GYD",
+		"currencyCountry": "GY",
+		"symbol": "GYD"
+	},
+	"HK": {
+		"countryName": "Hong Kong",
+		"currency": "HKD",
+		"currencyCountry": "HK",
+		"symbol": "HK$",
+		"dateFormat": "yyyy年M月d日"
+	},
+	"HM": {
+		"countryName": "Heard Island and McDonald Islands",
+		"currency": "AUD",
+		"currencyCountry": "HM",
+		"symbol": "AU$"
+	},
+	"HN": {
+		"countryName": "Honduras",
+		"currency": "HNL",
+		"currencyCountry": "HN",
+		"symbol": "HNL",
+		"dateFormat": "MM-dd-yyyy"
+	},
+	"HR": {
+		"countryName": "Croatia",
+		"currency": "HRK",
+		"currencyCountry": "HR",
+		"symbol": "kn",
+		"dateFormat": "dd.MM.yyyy."
+	},
+	"HT": {
+		"countryName": "Haiti",
+		"currency": "HTG",
+		"currencyCountry": "HT",
+		"symbol": "HTG"
+	},
+	"HU": {
+		"countryName": "Hungary",
+		"currency": "HUF",
+		"currencyCountry": "HU",
+		"symbol": "Ft",
+		"dateFormat": "yyyy.MM.dd."
+	},
+	"ID": {
+		"countryName": "Indonesia",
+		"currency": "IDR",
+		"currencyCountry": "ID",
+		"symbol": "Rp",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"IE": {
+		"countryName": "Ireland",
+		"currency": "EUR",
+		"currencyCountry": "IE",
+		"symbol": "€",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"IL": {
+		"countryName": "Israel",
+		"currency": "ILS",
+		"currencyCountry": "IL",
+		"symbol": "₪",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"IM": {
+		"countryName": "Isle of Man",
+		"currency": "GBP",
+		"currencyCountry": "IM",
+		"symbol": "£"
+	},
+	"IN": {
+		"countryName": "India",
+		"currency": "INR",
+		"currencyCountry": "IN",
+		"symbol": "Rs",
+		"dateFormat": "d/M/yyyy"
+	},
+	"IO": {
+		"countryName": "British Indian Ocean Territory",
+		"currency": "USD",
+		"currencyCountry": "IO",
+		"symbol": "$"
+	},
+	"IQ": {
+		"countryName": "Iraq",
+		"currency": "IQD",
+		"currencyCountry": "IQ",
+		"symbol": "IQD",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"IR": {
+		"countryName": "Iran",
+		"currency": "IRR",
+		"currencyCountry": "IR",
+		"symbol": "IRR"
+	},
+	"IS": {
+		"countryName": "Iceland",
+		"currency": "ISK",
+		"currencyCountry": "IS",
+		"symbol": "Ikr",
+		"dateFormat": "d.M.yyyy"
+	},
+	"IT": {
+		"countryName": "Italy",
+		"currency": "EUR",
+		"currencyCountry": "IT",
+		"symbol": "€",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"JE": {
+		"countryName": "Jersey",
+		"currency": "GBP",
+		"currencyCountry": "JE",
+		"symbol": "£"
+	},
+	"JM": {
+		"countryName": "Jamaica",
+		"currency": "JMD",
+		"currencyCountry": "JM",
+		"symbol": "J$"
+	},
+	"JO": {
+		"countryName": "Jordan",
+		"currency": "JOD",
+		"currencyCountry": "JO",
+		"symbol": "JD",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"JP": {
+		"countryName": "Japan",
+		"currency": "JPY",
+		"currencyCountry": "JP",
+		"symbol": "¥",
+		"dateFormat": "H24.MM.dd"
+	},
+	"KE": {
+		"countryName": "Kenya",
+		"currency": "KES",
+		"currencyCountry": "KE",
+		"symbol": "Ksh"
+	},
+	"KG": {
+		"countryName": "Kyrgyzstan",
+		"currency": "KGS",
+		"currencyCountry": "KG",
+		"symbol": "KGS"
+	},
+	"KH": {
+		"countryName": "Cambodia",
+		"currency": "KHR",
+		"currencyCountry": "KH",
+		"symbol": "KHR"
+	},
+	"KI": {
+		"countryName": "Kiribati",
+		"currency": "AUD",
+		"currencyCountry": "KI",
+		"symbol": "AU$"
+	},
+	"KM": {
+		"countryName": "Comoros",
+		"currency": "KMF",
+		"currencyCountry": "KM",
+		"symbol": "CF"
+	},
+	"KN": {
+		"countryName": "Saint Kitts and Nevis",
+		"currency": "XCD",
+		"currencyCountry": "KN",
+		"symbol": "XCD"
+	},
+	"KP": {
+		"countryName": "North Korea",
+		"currency": "KPW",
+		"currencyCountry": "KP",
+		"symbol": "KPW"
+	},
+	"KR": {
+		"countryName": "South Korea",
+		"currency": "KRW",
+		"currencyCountry": "KR",
+		"symbol": "₩",
+		"dateFormat": "yyyy. M. d"
+	},
+	"KW": {
+		"countryName": "Kuwait",
+		"currency": "KWD",
+		"currencyCountry": "KW",
+		"symbol": "KD",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"KY": {
+		"countryName": "Cayman Islands",
+		"currency": "KYD",
+		"currencyCountry": "KY",
+		"symbol": "KYD"
+	},
+	"KZ": {
+		"countryName": "Kazakhstan",
+		"currency": "KZT",
+		"currencyCountry": "KZ",
+		"symbol": "KZT"
+	},
+	"LA": {
+		"countryName": "Laos",
+		"currency": "LAK",
+		"currencyCountry": "LA",
+		"symbol": "LAK"
+	},
+	"LB": {
+		"countryName": "Lebanon",
+		"currency": "LBP",
+		"currencyCountry": "LB",
+		"symbol": "LB£",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"LC": {
+		"countryName": "Saint Lucia",
+		"currency": "XCD",
+		"currencyCountry": "LC",
+		"symbol": "XCD"
+	},
+	"LI": {
+		"countryName": "Liechtenstein",
+		"currency": "CHF",
+		"currencyCountry": "LI",
+		"symbol": "CHF"
+	},
+	"LK": {
+		"countryName": "Sri Lanka",
+		"currency": "LKR",
+		"currencyCountry": "LK",
+		"symbol": "SLRs"
+	},
+	"LR": {
+		"countryName": "Liberia",
+		"currency": "LRD",
+		"currencyCountry": "LR",
+		"symbol": "LRD"
+	},
+	"LS": {
+		"countryName": "Lesotho",
+		"currency": "LSL",
+		"currencyCountry": "LS",
+		"symbol": "LSL"
+	},
+	"LT": {
+		"countryName": "Lithuania",
+		"currency": "EUR",
+		"currencyCountry": "LT",
+		"symbol": "€",
+		"dateFormat": "yyyy.M.d"
+	},
+	"LU": {
+		"countryName": "Luxembourg",
+		"currency": "EUR",
+		"currencyCountry": "LU",
+		"symbol": "€",
+		"dateFormat": "dd.MM.yyyy"
+	},
+	"LV": {
+		"countryName": "Latvia",
+		"currency": "EUR",
+		"currencyCountry": "LV",
+		"symbol": "€",
+		"dateFormat": "yyyy.d.M"
+	},
+	"LY": {
+		"countryName": "Libya",
+		"currency": "LYD",
+		"currencyCountry": "LY",
+		"symbol": "LD",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"MA": {
+		"countryName": "Morocco",
+		"currency": "MAD",
+		"currencyCountry": "MA",
+		"symbol": "MAD",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"MC": {
+		"countryName": "Monaco",
+		"currency": "EUR",
+		"currencyCountry": "MC",
+		"symbol": "€"
+	},
+	"MD": {
+		"countryName": "Moldova",
+		"currency": "MDL",
+		"currencyCountry": "MD",
+		"symbol": "MDL"
+	},
+	"ME": {
+		"countryName": "Montenegro",
+		"currency": "EUR",
+		"currencyCountry": "ME",
+		"symbol": "€",
+		"dateFormat": "d.M.yyyy."
+	},
+	"MF": {
+		"countryName": "Saint Martin",
+		"currency": "EUR",
+		"currencyCountry": "MF",
+		"symbol": "€"
+	},
+	"MG": {
+		"countryName": "Madagascar",
+		"currency": "MGA",
+		"currencyCountry": "MG",
+		"symbol": "MGA"
+	},
+	"MH": {
+		"countryName": "Marshall Islands",
+		"currency": "USD",
+		"currencyCountry": "MH",
+		"symbol": "$"
+	},
+	"MK": {
+		"countryName": "Macedonia",
+		"currency": "MKD",
+		"currencyCountry": "MK",
+		"symbol": "MKD",
+		"dateFormat": "d.M.yyyy"
+	},
+	"ML": {
+		"countryName": "Mali",
+		"currency": "XOF",
+		"currencyCountry": "ML",
+		"symbol": "CFA"
+	},
+	"MM": {
+		"countryName": "Myanmar",
+		"currency": "MMK",
+		"currencyCountry": "MM",
+		"symbol": "MMK"
+	},
+	"MN": {
+		"countryName": "Mongolia",
+		"currency": "MNT",
+		"currencyCountry": "MN",
+		"symbol": "MNT"
+	},
+	"MO": {
+		"countryName": "Macao",
+		"currency": "MOP",
+		"currencyCountry": "MO",
+		"symbol": "MOP$"
+	},
+	"MP": {
+		"countryName": "Northern Mariana Islands",
+		"currency": "USD",
+		"currencyCountry": "MP",
+		"symbol": "$"
+	},
+	"MQ": {
+		"countryName": "Martinique",
+		"currency": "EUR",
+		"currencyCountry": "MQ",
+		"symbol": "€"
+	},
+	"MR": {
+		"countryName": "Mauritania",
+		"currency": "MRU",
+		"currencyCountry": "MR",
+		"symbol": "MRU"
+	},
+	"MS": {
+		"countryName": "Montserrat",
+		"currency": "XCD",
+		"currencyCountry": "MS",
+		"symbol": "XCD"
+	},
+	"MT": {
+		"countryName": "Malta",
+		"currency": "EUR",
+		"currencyCountry": "MT",
+		"symbol": "€",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"MU": {
+		"countryName": "Mauritius",
+		"currency": "MUR",
+		"currencyCountry": "MU",
+		"symbol": "MURs"
+	},
+	"MV": {
+		"countryName": "Maldives",
+		"currency": "MVR",
+		"currencyCountry": "MV",
+		"symbol": "MVR"
+	},
+	"MW": {
+		"countryName": "Malawi",
+		"currency": "MWK",
+		"currencyCountry": "MW",
+		"symbol": "MWK"
+	},
+	"MX": {
+		"countryName": "Mexico",
+		"currency": "MXN",
+		"currencyCountry": "MX",
+		"symbol": "MX$",
+		"dateFormat": "d/MM/yyyy"
+	},
+	"MY": {
+		"countryName": "Malaysia",
+		"currency": "MYR",
+		"currencyCountry": "MY",
+		"symbol": "RM",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"MZ": {
+		"countryName": "Mozambique",
+		"currency": "MZN",
+		"currencyCountry": "MZ",
+		"symbol": "MTn"
+	},
+	"NA": {
+		"countryName": "Namibia",
+		"currency": "NAD",
+		"currencyCountry": "NA",
+		"symbol": "N$"
+	},
+	"NC": {
+		"countryName": "New Caledonia",
+		"currency": "XPF",
+		"currencyCountry": "NC",
+		"symbol": "XPF"
+	},
+	"NE": {
+		"countryName": "Niger",
+		"currency": "XOF",
+		"currencyCountry": "NE",
+		"symbol": "CFA"
+	},
+	"NF": {
+		"countryName": "Norfolk Island",
+		"currency": "AUD",
+		"currencyCountry": "NF",
+		"symbol": "AU$"
+	},
+	"NG": {
+		"countryName": "Nigeria",
+		"currency": "NGN",
+		"currencyCountry": "NG",
+		"symbol": "₦"
+	},
+	"NI": {
+		"countryName": "Nicaragua",
+		"currency": "NIO",
+		"currencyCountry": "NI",
+		"symbol": "C$",
+		"dateFormat": "MM-dd-yyyy"
+	},
+	"NL": {
+		"countryName": "Netherlands",
+		"currency": "EUR",
+		"currencyCountry": "NL",
+		"symbol": "€",
+		"dateFormat": "d-M-yyyy"
+	},
+	"NO": {
+		"countryName": "Norway",
+		"currency": "NOK",
+		"currencyCountry": "NO",
+		"symbol": "Nkr",
+		"dateFormat": "dd.MM.yyyy"
+	},
+	"NP": {
+		"countryName": "Nepal",
+		"currency": "NPR",
+		"currencyCountry": "NP",
+		"symbol": "NPRs"
+	},
+	"NR": {
+		"countryName": "Nauru",
+		"currency": "AUD",
+		"currencyCountry": "NR",
+		"symbol": "AU$"
+	},
+	"NU": {
+		"countryName": "Niue",
+		"currency": "NZD",
+		"currencyCountry": "NU",
+		"symbol": "NZ$"
+	},
+	"NZ": {
+		"countryName": "New Zealand",
+		"currency": "NZD",
+		"currencyCountry": "NZ",
+		"symbol": "NZ$",
+		"dateFormat": "d/MM/yyyy"
+	},
+	"OM": {
+		"countryName": "Oman",
+		"currency": "OMR",
+		"currencyCountry": "OM",
+		"symbol": "OMR",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"PA": {
+		"countryName": "Panama",
+		"currency": "PAB",
+		"currencyCountry": "PA",
+		"symbol": "B/.",
+		"dateFormat": "MM/dd/yyyy"
+	},
+	"PE": {
+		"countryName": "Peru",
+		"currency": "PEN",
+		"currencyCountry": "PE",
+		"symbol": "S/.",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"PF": {
+		"countryName": "French Polynesia",
+		"currency": "XPF",
+		"currencyCountry": "PF",
+		"symbol": "XPF"
+	},
+	"PG": {
+		"countryName": "Papua New Guinea",
+		"currency": "PGK",
+		"currencyCountry": "PG",
+		"symbol": "PGK"
+	},
+	"PH": {
+		"countryName": "Philippines",
+		"currency": "PHP",
+		"currencyCountry": "PH",
+		"symbol": "₱",
+		"dateFormat": "M/d/yyyy"
+	},
+	"PK": {
+		"countryName": "Pakistan",
+		"currency": "PKR",
+		"currencyCountry": "PK",
+		"symbol": "PKRs"
+	},
+	"PL": {
+		"countryName": "Poland",
+		"currency": "PLN",
+		"currencyCountry": "PL",
+		"symbol": "zł",
+		"dateFormat": "dd.MM.yyyy"
+	},
+	"PM": {
+		"countryName": "Saint Pierre and Miquelon",
+		"currency": "EUR",
+		"currencyCountry": "PM",
+		"symbol": "€"
+	},
+	"PN": {
+		"countryName": "Pitcairn",
+		"currency": "NZD",
+		"currencyCountry": "PN",
+		"symbol": "NZ$"
+	},
+	"PR": {
+		"countryName": "Puerto Rico",
+		"currency": "USD",
+		"currencyCountry": "PR",
+		"symbol": "$",
+		"dateFormat": "MM-dd-yyyy"
+	},
+	"PS": {
+		"countryName": "Palestinian Territory",
+		"currency": "ILS",
+		"currencyCountry": "PS",
+		"symbol": "₪"
+	},
+	"PT": {
+		"countryName": "Portugal",
+		"currency": "EUR",
+		"currencyCountry": "PT",
+		"symbol": "€",
+		"dateFormat": "dd-MM-yyyy"
+	},
+	"PW": {
+		"countryName": "Palau",
+		"currency": "USD",
+		"currencyCountry": "PW",
+		"symbol": "$"
+	},
+	"PY": {
+		"countryName": "Paraguay",
+		"currency": "PYG",
+		"currencyCountry": "PY",
+		"symbol": "₲",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"QA": {
+		"countryName": "Qatar",
+		"currency": "QAR",
+		"currencyCountry": "QA",
+		"symbol": "QR",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"RE": {
+		"countryName": "Reunion",
+		"currency": "EUR",
+		"currencyCountry": "RE",
+		"symbol": "€"
+	},
+	"RO": {
+		"countryName": "Romania",
+		"currency": "RON",
+		"currencyCountry": "RO",
+		"symbol": "RON",
+		"dateFormat": "dd.MM.yyyy"
+	},
+	"RS": {
+		"countryName": "Serbia",
+		"currency": "RSD",
+		"currencyCountry": "RS",
+		"symbol": "din.",
+		"dateFormat": "d.M.yyyy."
+	},
+	"RU": {
+		"countryName": "Russia",
+		"currency": "RUB",
+		"currencyCountry": "RU",
+		"symbol": "RUB",
+		"dateFormat": "dd.MM.yyyy"
+	},
+	"RW": {
+		"countryName": "Rwanda",
+		"currency": "RWF",
+		"currencyCountry": "RW",
+		"symbol": "RWF"
+	},
+	"SA": {
+		"countryName": "Saudi Arabia",
+		"currency": "SAR",
+		"currencyCountry": "SA",
+		"symbol": "SR",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"SB": {
+		"countryName": "Solomon Islands",
+		"currency": "SBD",
+		"currencyCountry": "SB",
+		"symbol": "SBD"
+	},
+	"SC": {
+		"countryName": "Seychelles",
+		"currency": "SCR",
+		"currencyCountry": "SC",
+		"symbol": "SCR"
+	},
+	"SD": {
+		"countryName": "Sudan",
+		"currency": "SDG",
+		"currencyCountry": "SD",
+		"symbol": "SDG",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"SE": {
+		"countryName": "Sweden",
+		"currency": "SEK",
+		"currencyCountry": "SE",
+		"symbol": "Skr",
+		"dateFormat": "yyyy-MM-dd"
+	},
+	"SG": {
+		"countryName": "Singapore",
+		"currency": "SGD",
+		"currencyCountry": "SG",
+		"symbol": "S$",
+		"dateFormat": "M/d/yyyy"
+	},
+	"SH": {
+		"countryName": "Saint Helena",
+		"currency": "SHP",
+		"currencyCountry": "SH",
+		"symbol": "SHP"
+	},
+	"SI": {
+		"countryName": "Slovenia",
+		"currency": "EUR",
+		"currencyCountry": "SI",
+		"symbol": "€",
+		"dateFormat": "d.M.yyyy"
+	},
+	"SJ": {
+		"countryName": "Svalbard and Jan Mayen",
+		"currency": "NOK",
+		"currencyCountry": "SJ",
+		"symbol": "Nkr"
+	},
+	"SK": {
+		"countryName": "Slovakia",
+		"currency": "EUR",
+		"currencyCountry": "SK",
+		"symbol": "€",
+		"dateFormat": "d.M.yyyy"
+	},
+	"SL": {
+		"countryName": "Sierra Leone",
+		"currency": "SLL",
+		"currencyCountry": "SL",
+		"symbol": "SLL"
+	},
+	"SM": {
+		"countryName": "San Marino",
+		"currency": "EUR",
+		"currencyCountry": "SM",
+		"symbol": "€"
+	},
+	"SN": {
+		"countryName": "Senegal",
+		"currency": "XOF",
+		"currencyCountry": "SN",
+		"symbol": "CFA"
+	},
+	"SO": {
+		"countryName": "Somalia",
+		"currency": "SOS",
+		"currencyCountry": "SO",
+		"symbol": "Ssh"
+	},
+	"SR": {
+		"countryName": "Suriname",
+		"currency": "SRD",
+		"currencyCountry": "SR",
+		"symbol": "SRD"
+	},
+	"SS": {
+		"countryName": "South Sudan",
+		"currency": "SSP",
+		"currencyCountry": "SS",
+		"symbol": "SSP"
+	},
+	"ST": {
+		"countryName": "Sao Tome and Principe",
+		"currency": "STD",
+		"currencyCountry": "ST",
+		"symbol": "STD"
+	},
+	"SV": {
+		"countryName": "El Salvador",
+		"currency": "USD",
+		"currencyCountry": "SV",
+		"symbol": "$",
+		"dateFormat": "MM-dd-yyyy"
+	},
+	"SX": {
+		"countryName": "Sint Maarten",
+		"currency": "ANG",
+		"currencyCountry": "SX",
+		"symbol": "ANG"
+	},
+	"SY": {
+		"countryName": "Syria",
+		"currency": "SYP",
+		"currencyCountry": "SY",
+		"symbol": "SY£",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"SZ": {
+		"countryName": "Swaziland",
+		"currency": "SZL",
+		"currencyCountry": "SZ",
+		"symbol": "SZL"
+	},
+	"TC": {
+		"countryName": "Turks and Caicos Islands",
+		"currency": "USD",
+		"currencyCountry": "TC",
+		"symbol": "$"
+	},
+	"TD": {
+		"countryName": "Chad",
+		"currency": "XAF",
+		"currencyCountry": "TD",
+		"symbol": "FCFA"
+	},
+	"TF": {
+		"countryName": "French Southern Territories",
+		"currency": "EUR",
+		"currencyCountry": "TF",
+		"symbol": "€"
+	},
+	"TG": {
+		"countryName": "Togo",
+		"currency": "XOF",
+		"currencyCountry": "TG",
+		"symbol": "CFA"
+	},
+	"TH": {
+		"countryName": "Thailand",
+		"currency": "THB",
+		"currencyCountry": "TH",
+		"symbol": "฿",
+		"dateFormat": "๓/๖/๒๕๕๕"
+	},
+	"TJ": {
+		"countryName": "Tajikistan",
+		"currency": "TJS",
+		"currencyCountry": "TJ",
+		"symbol": "TJS"
+	},
+	"TK": {
+		"countryName": "Tokelau",
+		"currency": "NZD",
+		"currencyCountry": "TK",
+		"symbol": "NZ$"
+	},
+	"TL": {
+		"countryName": "East Timor",
+		"currency": "USD",
+		"currencyCountry": "TL",
+		"symbol": "$"
+	},
+	"TM": {
+		"countryName": "Turkmenistan",
+		"currency": "TMT",
+		"currencyCountry": "TM",
+		"symbol": "TMT"
+	},
+	"TN": {
+		"countryName": "Tunisia",
+		"currency": "TND",
+		"currencyCountry": "TN",
+		"symbol": "DT",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"TO": {
+		"countryName": "Tonga",
+		"currency": "TOP",
+		"currencyCountry": "TO",
+		"symbol": "T$"
+	},
+	"TR": {
+		"countryName": "Turkey",
+		"currency": "TRY",
+		"currencyCountry": "TR",
+		"symbol": "TL",
+		"dateFormat": "dd.MM.yyyy"
+	},
+	"TT": {
+		"countryName": "Trinidad and Tobago",
+		"currency": "TTD",
+		"currencyCountry": "TT",
+		"symbol": "TT$"
+	},
+	"TV": {
+		"countryName": "Tuvalu",
+		"currency": "AUD",
+		"currencyCountry": "TV",
+		"symbol": "AU$"
+	},
+	"TW": {
+		"countryName": "Taiwan",
+		"currency": "TWD",
+		"currencyCountry": "TW",
+		"symbol": "NT$",
+		"dateFormat": "yyyy/M/d"
+	},
+	"TZ": {
+		"countryName": "Tanzania",
+		"currency": "TZS",
+		"currencyCountry": "TZ",
+		"symbol": "TSh"
+	},
+	"UA": {
+		"countryName": "Ukraine",
+		"currency": "UAH",
+		"currencyCountry": "UA",
+		"symbol": "₴",
+		"dateFormat": "dd.MM.yyyy"
+	},
+	"UG": {
+		"countryName": "Uganda",
+		"currency": "UGX",
+		"currencyCountry": "UG",
+		"symbol": "USh"
+	},
+	"UM": {
+		"countryName": "United States Minor Outlying Islands",
+		"currency": "USD",
+		"currencyCountry": "UM",
+		"symbol": "$"
+	},
+	"US": {
+		"countryName": "United States",
+		"currency": "USD",
+		"currencyCountry": "US",
+		"symbol": "$",
+		"dateFormat": "M/d/yyyy"
+	},
+	"UY": {
+		"countryName": "Uruguay",
+		"currency": "UYU",
+		"currencyCountry": "UY",
+		"symbol": "$U",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"UZ": {
+		"countryName": "Uzbekistan",
+		"currency": "UZS",
+		"currencyCountry": "UZ",
+		"symbol": "UZS"
+	},
+	"VA": {
+		"countryName": "Vatican",
+		"currency": "EUR",
+		"currencyCountry": "VA",
+		"symbol": "€"
+	},
+	"VC": {
+		"countryName": "Saint Vincent and the Grenadines",
+		"currency": "XCD",
+		"currencyCountry": "VC",
+		"symbol": "XCD"
+	},
+	"VE": {
+		"countryName": "Venezuela",
+		"currency": "VEF",
+		"currencyCountry": "VE",
+		"symbol": "Bs.F.",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"VG": {
+		"countryName": "British Virgin Islands",
+		"currency": "USD",
+		"currencyCountry": "VG",
+		"symbol": "$"
+	},
+	"VI": {
+		"countryName": "U.S. Virgin Islands",
+		"currency": "USD",
+		"currencyCountry": "VI",
+		"symbol": "$"
+	},
+	"VN": {
+		"countryName": "Vietnam",
+		"currency": "VND",
+		"currencyCountry": "VN",
+		"symbol": "₫",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"VU": {
+		"countryName": "Vanuatu",
+		"currency": "VUV",
+		"currencyCountry": "VU",
+		"symbol": "VUV"
+	},
+	"WF": {
+		"countryName": "Wallis and Futuna",
+		"currency": "XPF",
+		"currencyCountry": "WF",
+		"symbol": "XPF"
+	},
+	"WS": {
+		"countryName": "Samoa",
+		"currency": "WST",
+		"currencyCountry": "WS",
+		"symbol": "WST"
+	},
+	"XK": {
+		"countryName": "Kosovo",
+		"currency": "EUR",
+		"currencyCountry": "XK",
+		"symbol": "€"
+	},
+	"YE": {
+		"countryName": "Yemen",
+		"currency": "YER",
+		"currencyCountry": "YE",
+		"symbol": "YR",
+		"dateFormat": "dd/MM/yyyy"
+	},
+	"YT": {
+		"countryName": "Mayotte",
+		"currency": "EUR",
+		"currencyCountry": "YT",
+		"symbol": "€"
+	},
+	"ZA": {
+		"countryName": "South Africa",
+		"currency": "ZAR",
+		"currencyCountry": "ZA",
+		"symbol": "R",
+		"dateFormat": "yyyy/MM/dd"
+	},
+	"ZM": {
+		"countryName": "Zambia",
+		"currency": "ZMW",
+		"currencyCountry": "ZM",
+		"symbol": "ZK"
+	},
+	"ZW": {
+		"countryName": "Zimbabwe",
+		"currency": "ZWL",
+		"currencyCountry": "ZW",
+		"symbol": "ZWL"
+	}
+}

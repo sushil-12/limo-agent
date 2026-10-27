@@ -18,7 +18,10 @@ from typing import Any, ClassVar
 import sqlglot
 from sqlglot import exp
 from sqlglot.dialects.mysql import MySQL
-from sqlglot.errors import ParseError
+from sqlglot.errors import SqlglotError
+from sqlglot.tokens import TokenType
+
+from app.services.data.policy import SENSITIVE_COLUMN
 
 MAX_SQL_CHARS = 5000
 
@@ -61,6 +64,14 @@ class SqlRejectedError(Exception):
     """The SQL is unsafe or unusable. The message is written for the model."""
 
 
+class UnknownEnumValueError(SqlRejectedError):
+    """The query compares an enum column with a value no enum column has: a guessed meaning.
+
+    Retrying only swaps in another value that exists but means something else (the model
+    turned "Stripe errors" into stripe_account_type = 'other'), so the agent stops instead.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class TableView:
     """What a table looks like to this requester."""
@@ -89,9 +100,10 @@ def make_safe(
         raise SqlRejectedError("the query is empty")
     if len(sql) > MAX_SQL_CHARS:
         raise SqlRejectedError("the query is too long; write a simpler one")
+    _check_json_arrows(sql)
     try:
         statements = [s for s in sqlglot.parse(sql, read="mysql") if s is not None]
-    except ParseError as exc:
+    except SqlglotError as exc:  # ParseError, and TokenError for e.g. an unclosed quote
         raise SqlRejectedError(f"MySQL syntax error: {str(exc).splitlines()[0][:200]}") from exc
     if len(statements) != 1:
         raise SqlRejectedError("write exactly one SELECT statement")
@@ -109,6 +121,11 @@ def make_safe(
             raise SqlRejectedError(f"{node.key.upper()} is not allowed; write a plain SELECT")
         if isinstance(node, exp.Anonymous) and node.name.upper() not in _SAFE_ANONYMOUS:
             raise SqlRejectedError(f"function {node.name.upper()} is not allowed")
+        # Private columns are hidden, so a private-sounding alias can only mislabel other data.
+        if isinstance(node, exp.Alias) and SENSITIVE_COLUMN.search(node.alias):
+            raise SqlRejectedError(
+                f"{node.alias} is private and cannot be looked up; reply with exactly NO_SQL"
+            )
 
     known_lower = {t.lower() for t in known_tables}
     ctes = {cte.alias_or_name for cte in root.find_all(exp.CTE)}
@@ -139,6 +156,7 @@ def make_safe(
             enums[column] = enums.get(column, frozenset()) | values
     _check_enum_values(root, enums)
     _check_list_columns(root, frozenset().union(*(view.list_columns for _, _, view in refs)))
+    _check_booking_numbers(root, refs)
 
     used: list[str] = []
     for table, name, view in refs:
@@ -201,6 +219,48 @@ def _check_columns(
             raise SqlRejectedError(f"unknown column {name}; use only the listed columns")
 
 
+def _check_json_arrows(sql: str) -> None:
+    """MariaDB has no ``->`` / ``->>``; a query using them fails with a bare syntax error."""
+    try:
+        tokens = sqlglot.Tokenizer().tokenize(sql)
+    except SqlglotError:
+        return  # the parse below reports it
+    if any(t.token_type in (TokenType.ARROW, TokenType.DARROW) for t in tokens):
+        raise SqlRejectedError(
+            "MariaDB has no -> or ->> JSON operator; write JSON_UNQUOTE(JSON_EXTRACT(col, '$.key')), and "
+            "CAST(... AS DECIMAL(12,2)) when summing"
+        )
+
+
+def _check_booking_numbers(root: exp.Query, refs: Sequence[tuple[exp.Table, str, TableView]]) -> None:
+    """Reject ``tbl_order_details.order_id = 2109`` / ``tbl_order.id = 2109``.
+
+    Order ids are not booking numbers (they match for about a third of bookings), so such a
+    query silently returns another customer's prices.
+    """
+    by_alias = {table.alias_or_name: name for table, name, _ in refs}
+    owners: dict[str, set[str]] = {}
+    for _, name, view in refs:
+        for column in view.columns:
+            owners.setdefault(column.lower(), set()).add(name)
+    order_ids = {("tbl_order_details", "order_id"), ("tbl_order", "id")}
+    for node in root.find_all(exp.EQ, exp.NEQ, exp.In):
+        sides = [node.this, *([] if isinstance(node, exp.In) else [node.expression])]
+        literals = node.expressions if isinstance(node, exp.In) else sides
+        if not any(isinstance(v, exp.Literal) and v.this.strip().isdigit() for v in literals):
+            continue
+        for side in sides:
+            if not isinstance(side, exp.Column):
+                continue
+            tables = {by_alias.get(side.table)} if side.table else owners.get(side.name.lower(), set())
+            if len(tables) == 1 and (next(iter(tables)), side.name.lower()) in order_ids:
+                raise SqlRejectedError(
+                    f"{side.sql()} is an order id, not a booking number. A booking number is "
+                    "tbl_reservations.id = tbl_order.reservation_id: JOIN tbl_order o ON o.reservation_id = "
+                    "<booking> and tbl_order_details d ON d.order_id = o.id"
+                )
+
+
 def _check_list_columns(root: exp.Query, list_columns: frozenset[str]) -> None:
     """Reject ``col = 2`` / ``col LIKE '%2%'`` / ``JSON_CONTAINS(col, ...)`` on number-list columns.
 
@@ -250,7 +310,7 @@ def _check_enum_values(root: exp.Query, enums: Mapping[str, frozenset[str]]) -> 
             if literal.this.lower() in {v.lower() for v in allowed}:
                 continue
             hint = [c for c in owners.get(literal.this.lower(), []) if c != column.name]
-            raise SqlRejectedError(
+            raise (SqlRejectedError if hint else UnknownEnumValueError)(
                 f"'{literal.this}' is not a value of {column.name} (its values: "
                 + ", ".join(f"'{v}'" for v in sorted(allowed))
                 + ")"

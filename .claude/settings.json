@@ -1,0 +1,47 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/bin/ruff format *)",
+      "Bash(.venv/bin/ruff check *)",
+      "Bash(.venv/bin/python -m mypy --version)",
+      "Bash(.venv/bin/python -c \"import app.cli.sql_shell\")",
+      "Bash(.venv/bin/pytest -q tests/test_guest_chat.py)",
+      "Bash(timeout 60 .venv/bin/python -m app.cli.sql_shell)",
+      "Bash(.venv/bin/python -m app.cli.sql_shell)",
+      "Bash(LIMO_TOKEN='eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiIxIiwianRpIjoiMTQ2MjQ3NmJiZTJmZGU5Y2FkNzBlNDFlYzg1OWJlZjhkOWM2NjA4NDUwMzU3NzdhZTFjYjVmMmQyZmUwMmE1ZTNjN2FkNTFjODE0M2U2ZmMiLCJpYXQiOjE3OTI4NDk2NjEuNDczNTAwOTY3MDI1NzU2ODM1OTM3NSwibmJmIjoxNzkyODQ5NjYxLjQ3MzUwNDA2NjQ2NzI4NTE1NjI1LCJleHAiOjE4MjQzODU2NjEuNDQ2NDM5MDI3Nzg2MjU0ODgyODEyNSwic3ViIjoiMSIsInNjb3BlcyI6W119.MoZ6RldHlH6lw7goMvz7CMn_UQB_W3jiJTBB8ifqWXoKC2UmqPacrW0tFZTR7aqf-vrjHUgX5MNuqfdBOUKcBDuRvI2txVDh_NrguqqRo-gdtyiacNbDsKdBtV5Bnk6fYZGyauF3ck43wKeQmW65vnYHDqRH6lJy8dcwbWLGM73pT5PQUSt9N4NpWx9Azo2LG7kF0yAxuHo4bUYyKWUJlxr0pCFLAA0lIQPlBv-JaXZ1aiQkCO-1b-TTGRCOVDjWo-UBMV3pG4gbKrsKPE2TMr5Ssgjkv0c8cujz1AvdTkYOcwxRIhiuFYP09Tc83-mbVEZIbcp-0LvmbZoaNEfQOszeKrPMi4g9oP5c9gzyDh6X7CBoi0o3dXOkX5p1qdBt3zUMmUpYX53sCxJaY3CUaLuP6pbwojmdhvL9SkG_DmzvweaHgazch7jOOSpNQOMwukVssocnlEYqwDJiP9UgxMdmwwibS2XYUxyOc9X_wMjlk2V6asKNZ1H0fSPAv2mf4Nf2wLbjTXMPyUiNvm68mwgz5KLQTlQ98abdyg6oC2KwH8BFltr4Ab90F5pdVnib2SyTrTpiRJ03zTibqgLt-2iy2pPlHk-Fr76ajm_SFBQol3cLJ4ep88BI4s29_UpvLt66y2b-iFJf9Js8t_Bq2ynHkVaAQ2JH-K6HJubvZIo' .venv/bin/python -m app.cli.sql_shell)",
+      "Bash(sed -E 's/eyJ[A-Za-z0-9._-]+/<TOKEN>/g' .claude/settings.json; git check-ignore -v .claude/settings.json || echo \"NOT ignored by git\")",
+      "Bash(grep -v '^\\\\s*\"[a-z_ ]*\",$')",
+      "Bash(PYTHONPATH=. .venv/bin/python /private/tmp/claude-502/-Users-sushil-Downloads-limo-limoagent/c0125e0d-6356-47cf-9ba3-fef7d3762d33/scratchpad/peek.py)",
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(.venv/bin/pytest -q tests/test_data_queries.py)",
+      "Bash(.venv/bin/python -m app.cli.sql_eval --check-examples)",
+      "Bash(.venv/bin/python /private/tmp/claude-502/-Users-sushil-Downloads-limo-limoagent/c0125e0d-6356-47cf-9ba3-fef7d3762d33/scratchpad/q.py)",
+      "Bash(PYTHONPATH=. .venv/bin/python /private/tmp/claude-502/-Users-sushil-Downloads-limo-limoagent/c0125e0d-6356-47cf-9ba3-fef7d3762d33/scratchpad/q.py)",
+      "Bash(.venv/bin/python -m pytest -q)",
+      "Bash(.venv/bin/python -m pytest -q tests/test_data_queries.py)",
+      "Bash(grep -E \"SQL:|failed|ok in|NO_SQL|^\\\\s+[0-9]+\\\\s*$\")",
+      "Bash(grep -E \"now asking|SQL:|failed|ok in|^\\\\s+[0-9]+\\\\s*$\")",
+      "Bash(.venv/bin/python -m pytest -q tests/test_data_queries.py -k \"scoped_to_the_requester or follow_up_is_checked or reuses_learned\")",
+      "Bash(python3 -c \"import sys,json; [print\\(json.loads\\(l\\)['key']\\) for l in sys.stdin]\")",
+      "Bash(python3 -c \"import sys,json; [print\\(json.loads\\(l\\)['role'], '|', json.loads\\(l\\)['key'], '|', \\(json.loads\\(l\\)['sql'] or 'NULL'\\)[:80]\\) for l in sys.stdin]\")",
+      "Bash(sed -i '' \"s/f\\\\\"WHEN {badge} THEN '{name} badge, based in a suburb' \\\\\"/f\\\\\"WHEN {badge} THEN '{name} badge, based outside {name}' \\\\\"/\" app/services/data/templates.py)",
+      "Bash(sed -i '' \"s/'X badge, based \\\\\"$/'X badge, based \\\\\"/\" app/services/data/catalog.py)",
+      "Bash(.venv/bin/python -m pytest -q tests/test_data_queries.py -k follow_up_naming)",
+      "Bash(python3 - /private/tmp/claude-502/-Users-sushil-Downloads-limo-limoagent/c0125e0d-6356-47cf-9ba3-fef7d3762d33/scratchpad/q3.py)",
+      "Bash(PYTHONPATH=. .venv/bin/python /private/tmp/claude-502/-Users-sushil-Downloads-limo-limoagent/c0125e0d-6356-47cf-9ba3-fef7d3762d33/scratchpad/q3.py)",
+      "Bash(wc -l 1800-limo/src/app/components/quotebot/select-vehicle/select-vehicle.component.ts 1800-limo/src/app/components/website/home/home.component.html)",
+      "Bash(ls 1800-limo/src/app/components/quotebot/new-booking)",
+      "Bash(ls limoagent/app limoagent/app/services limoagent/app/services/data)",
+      "Bash(grep -rn \"master-vehicle-listing\\\\|masterVehicleListing\\\\|master_vehicle\" --include=*.ts 1800-limo/src)",
+      "Bash(ls app/cli app/db app/core && sed -n 1,80p app/cli/sql_shell.py && grep -n \"db_\\\\|def \\\\|database_url\" app/core/config.py | head -60 && ls app/db && sed -n 1,60p app/db/*.py | head -80)",
+      "Bash(timeout 30 .venv/bin/python /private/tmp/claude-502/-Users-sushil-Downloads-limo-limoagent/2fbd36db-1287-4315-adf8-21310a26fb30/scratchpad/q.py \"SELECT VERSION\\(\\)\" \"SELECT id, reservation_id, grand_total, currency FROM tbl_order WHERE reservation_id IN \\(2109,2112\\) OR id IN \\(2106,2109\\)\")",
+      "Bash(PYTHONPATH=. .venv/bin/python /private/tmp/claude-502/-Users-sushil-Downloads-limo-limoagent/2fbd36db-1287-4315-adf8-21310a26fb30/scratchpad/q.py 'SELECT VERSION\\(\\)' 'SELECT id, reservation_id, grand_total, currency FROM tbl_order WHERE reservation_id IN \\(2109,2112\\) OR id IN \\(2106,2109\\)')",
+      "Bash(PYTHONPATH=. .venv/bin/python /private/tmp/claude-502/-Users-sushil-Downloads-limo-limoagent/2fbd36db-1287-4315-adf8-21310a26fb30/scratchpad/q.py 'SELECT UPPER\\(o.currency\\) AS currency, COUNT\\(*\\) AS bookings, *)",
+      "Bash(PYTHONPATH=. .venv/bin/python /private/tmp/claude-502/-Users-sushil-Downloads-limo-limoagent/2fbd36db-1287-4315-adf8-21310a26fb30/scratchpad/q.py 'SELECT id, name FROM tbl_badge_cities WHERE name LIKE '\\\\''%wash%'\\\\'' OR name LIKE '\\\\''%seattle%'\\\\'' OR name LIKE '\\\\''%portland%'\\\\''' 'SELECT ac.acc_id, ac.company_name, bc.name, a.address, a.state FROM tbl_affiliate_company ac JOIN tbl_account a ON a.id=ac.acc_id LEFT JOIN tbl_badge_cities bc ON bc.id=ac.badge_city WHERE a.status='\\\\''enable'\\\\'' AND \\(bc.name LIKE '\\\\''%washington%'\\\\'' OR CONCAT_WS\\('\\\\'' '\\\\'',a.address,a.street,a.city,a.state,a.zip\\) LIKE '\\\\''%washington%'\\\\'' OR a.address LIKE '\\\\''%, WA %'\\\\'' OR a.address LIKE '\\\\''%, DC %'\\\\''\\)' 'SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE\\(\\) AND TABLE_NAME='\\\\''tbl_travel_planner'\\\\''' 'SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE\\(\\) AND TABLE_NAME='\\\\''tbl_affiliate_company'\\\\'' AND COLUMN_NAME IN \\('\\\\''account_approval'\\\\'','\\\\''stripe_account_type'\\\\''\\)' 'SELECT d.order_id, d.rate_category, d.rate_label, d.amount FROM tbl_order_details d WHERE d.order_id=2106 AND d.amount<>0')"
+    ],
+    "additionalDirectories": [
+      "/Users/sushil/Downloads/limo/limoagent/.claude",
+      "/Users/sushil/Downloads/limo/limoagent/app/db"
+    ]
+  }
+}
