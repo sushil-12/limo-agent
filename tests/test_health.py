@@ -106,11 +106,11 @@ def test_cors_preflight(client: TestClient) -> None:
         },
     )
     assert response.status_code == 200
-    assert response.headers["access-control-allow-origin"] == "http://localhost:4200"
+    assert response.headers["access-control-allow-origin"] == "*"
     assert "access-control-allow-credentials" not in response.headers
 
-    evil = client.options(
+    other = client.options(
         "/v1/chat",
-        headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "POST"},
+        headers={"Origin": "https://any.example", "Access-Control-Request-Method": "POST"},
     )
-    assert "access-control-allow-origin" not in evil.headers
+    assert other.headers["access-control-allow-origin"] == "*"

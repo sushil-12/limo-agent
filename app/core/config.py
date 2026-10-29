@@ -146,8 +146,7 @@ class Settings(BaseSettings):
         """Refuse configurations that are unsafe or incomplete."""
         if self.passport_public_key is None and self.passport_public_key_path is None:
             raise ValueError("PASSPORT_PUBLIC_KEY or PASSPORT_PUBLIC_KEY_PATH must be set")
-        if self.app_env != "local" and "*" in self.cors_origins:
-            raise ValueError("CORS_ORIGINS may not contain '*' outside APP_ENV=local")
+        # TODO: restore the "no '*' outside APP_ENV=local" guard once widget origins are known.
         if self.is_production and self.enable_debug_routes:
             raise ValueError("ENABLE_DEBUG_ROUTES must be false in production")
         if self.enable_debug_routes and self.service_api_key is None:

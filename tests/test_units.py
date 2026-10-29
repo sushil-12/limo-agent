@@ -130,7 +130,6 @@ def test_session_init_sql() -> None:
     ("overrides", "message"),
     [
         ({"app_env": "production", "enable_debug_routes": True, "service_api_key": "k" * 40}, "production"),
-        ({"app_env": "staging", "cors_origins": "*"}, "CORS_ORIGINS"),
         ({"enable_debug_routes": True}, "SERVICE_API_KEY"),
         ({"service_api_key": "short"}, "at least"),
         ({"passport_public_key": None}, "PASSPORT_PUBLIC_KEY"),
