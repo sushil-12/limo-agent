@@ -40,6 +40,7 @@ class AirportIndex:
     def __init__(self, airports: Iterable[Airport]) -> None:
         self.airports = [a for a in airports if a.id != FBO_AIRPORT_ID]
         self._by_code = {a.code.upper(): a for a in self.airports if a.code}
+        self._by_id = {a.id: a for a in self.airports}
 
     @classmethod
     def load(cls, path: Path = _DATA / "airports.json") -> AirportIndex:
@@ -59,6 +60,12 @@ class AirportIndex:
 
     def by_code(self, code: str) -> Airport | None:
         return self._by_code.get(code.strip().upper())
+
+    def by_id(self, airport_id: Any) -> Airport | None:
+        try:
+            return self._by_id.get(int(airport_id))
+        except (TypeError, ValueError):
+            return None
 
     def in_city(self, city: str) -> list[Airport]:
         wanted = " ".join(city.lower().split())
@@ -114,3 +121,12 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
         + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(d_lng / 2) ** 2
     )
     return 6371 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def currency_symbol(code: Any) -> str | None:
+    """The symbol for a saved booking's currency code (``tbl_order.currency``, e.g. ``usd``)."""
+    wanted = str(code or "").upper()
+    for entry in _currencies().values():
+        if wanted and str(entry.get("currency") or "").upper() == wanted:
+            return entry.get("symbol")
+    return None

@@ -510,7 +510,7 @@ The same `BookingFlow` also runs in the web chat (`app/services/booking/chat.py`
 - **State:** kept in the agent process, keyed by user id + `conversation_id`, dropped after
   `CHAT_BOOKING_TTL_SECONDS` idle (default 30 min). The web widget now sends a `conversation_id`
   (new per "New chat"). No LLM is involved in booking turns; the system prompt tells the model
-  how to start a booking and that it can't change or cancel one.
+  how to start a booking or change one (EDIT_BOOKING_FLOW.md) and that it can't cancel one.
 - **Token:** the user's own bearer token from the chat request is passed to the 1800limo API
   (refreshed on every message), never logged.
 - **Photos:** category and vehicle menus are sent as cards (`booking.cards`) with the listing

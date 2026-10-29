@@ -69,6 +69,8 @@ _SERVICE_NAMES = {"one_way": "one way", "round_trip": "round trip", "charter_tou
 _CHANGE = re.compile(
     r"^(?:change|set|update|make)\s+(?:the\s+)?(?P<field>.+?)\s+(?:to|as|=)\s+(?P<value>.+)$", re.I
 )
+_CHANGE_MANY = re.compile(r"^(?:change|set|update|make)\s+(?P<rest>.+)$", re.I)
+_CHANGE_PART = re.compile(r"^(?:the\s+)?(?P<field>.+?)\s+(?:to|as|=)\s+(?P<value>.+)$", re.I)
 _ADD_STOP = re.compile(r"^add\s+(?:a\s+)?(?P<ret>return\s+)?stop\s+(?:at\s+)?(?P<value>.+)$", re.I)
 _AIRPORT_WORDS = re.compile(r"\b(?:international\s+)?(?:airport|airpot|aiport|intl)\b|\bka\s+airport\b", re.I)
 _CODE = re.compile(r"^\s*([A-Za-z]{3})(?:\s+(?:airport|intl))?\s*$")
@@ -201,8 +203,9 @@ class BookingFlow:
             self._invalidate_trip()
             self.pending = self.menu = None
             return True
-        if match := _CHANGE.match(text):
-            await self._change(match.group("field").lower().strip(), match.group("value").strip())
+        if (parts := _change_parts(text)) is not None:
+            for name, value in parts:
+                await self._change(name, value)
             return True
         return False
 
@@ -670,7 +673,10 @@ class BookingFlow:
             return None
         self._show_summary(final=True)
         self._awaiting_confirm = True
-        return self._ask("confirm", "Confirm booking? (yes/no)")
+        return self._ask("confirm", self._confirm_prompt())
+
+    def _confirm_prompt(self) -> str:
+        return "Confirm booking? (yes/no)"
 
     def _ask(self, key: str, question: str) -> None:
         self.pending = key
@@ -1503,7 +1509,8 @@ class BookingFlow:
                 str(x) for x in (details.get("year"), details.get("make"), details.get("model")) if x
             )
             category = d.category.get("name") if d.category else v.get("name")
-            self.say(f"  Vehicle:    {title or v.get('name')} ({category})")
+            shown = title or v.get("name")
+            self.say(f"  Vehicle:    {shown}" + (f" ({category})" if category != shown else ""))
             if self.is_admin and not d.is_master_vehicle:
                 operator = v.get("affiliate_company") or v.get("affiliate_name")
                 if operator:
@@ -1546,13 +1553,17 @@ class BookingFlow:
                         f"  (The vehicle list showed {_money(sym, listed)}; the booking saves the price "
                         "above, calculated the way the web app does.)"
                     )
-        self.say("  Payment:    none now; the booking is saved unpaid and paid later, as in the web app.")
+        if (note := self._payment_note()) is not None:
+            self.say(f"  Payment:    {note}")
         if final and not self.is_admin and d.outbound.date and d.outbound.time:
             at = datetime.combine(
                 d.outbound.date, datetime.strptime(d.outbound.time, "%H:%M:%S").time(), self.now().tzinfo
             )
             if at - self.now() <= timedelta(hours=24):
                 self.say("  Note:       this pickup is within 24 hours.")
+
+    def _payment_note(self) -> str | None:
+        return "none now; the booking is saved unpaid and paid later, as in the web app."
 
     def _print_rates(self, title: str, rates: Any, sym: str) -> None:
         labels = []
@@ -1672,6 +1683,20 @@ async def add_card(api: LimoApi, path: str, fields: dict[str, Any], *, acc_id: A
     body.update(fields)
     answer = await api.post(path, body)
     return str(answer.get("message") or "Credit card has been added successfully.")
+
+
+def _change_parts(text: str) -> list[tuple[str, str]] | None:
+    """'change pax to 4 and bags to 2' -> [('pax', '4'), ('bags', '2')]; None if not a change.
+    A value with a comma or 'and' in it stays whole unless every piece reads 'X to Y'."""
+    if (whole := _CHANGE.match(text)) is None:
+        return None
+    single = [(whole.group("field").lower().strip(), whole.group("value").strip())]
+    many = _CHANGE_MANY.match(text)
+    pieces = re.split(r"\s*(?:,|\band\b)\s*", many.group("rest")) if many else []
+    matches = [_CHANGE_PART.match(piece) for piece in pieces]
+    if len(matches) < 2 or not all(matches):
+        return single
+    return [(m.group("field").lower().strip(), m.group("value").strip()) for m in matches if m]
 
 
 _MAX_IMAGES = 5

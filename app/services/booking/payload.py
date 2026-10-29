@@ -208,18 +208,27 @@ def submit_payload(
     if d.rates is None:
         raise ValueError("rates are required before submitting")
     v = form_value(d, mode=mode, vehicle_categories=vehicle_categories)
-    _normalise_phones(v, d.is_round_trip)
-    _mirror_airport_coordinates(v)
-    rt = d.is_round_trip
+    finish_form(v, d.is_round_trip)
     v["booking_created_from"] = flags.booking_created_from
     v["proceed"] = True
-    currency = _currency(d)
+    currency = booking_currency(d)
     if currency is not None:  # JSON.stringify drops an undefined currency
         v["currency"] = currency
     v["platform_type"] = "web"
     v["is_master_vehicle"] = d.is_master_vehicle
     v["is_pending_affiliate"] = v["affiliate_type"] == "in_progress_affiliate"
     v["return_is_pending_affiliate"] = v["return_affiliate_type"] == "in_progress_affiliate"
+    apply_rates(v, d, flags)
+    if mode == "individual":
+        v.pop("booking_created_from", None)  # only subscribers send it (booking.ts:8705)
+    return v
+
+
+def apply_rates(v: dict, d: BookingDraft, flags: ShareFlags) -> None:
+    """The rates form's value, totals and share arrays, added at submit (booking.ts:8336-8360)."""
+    if d.rates is None:
+        raise ValueError("rates are required before submitting")
+    rt = d.is_round_trip
     v["rateArray"] = rates_form_value(d.rates)
     v["grand_total"] = d.rates.grand_total
     v["sub_total"] = d.rates.sub_total
@@ -242,9 +251,17 @@ def submit_payload(
             flags=flags,
             vehicles=int(v["number_of_vehicles"] or 0),
         )
-    if mode == "individual":
-        v.pop("booking_created_from", None)  # only subscribers send it (booking.ts:8705)
-    return v
+
+
+def empty_form(mode: str) -> dict[str, Any]:
+    """``buildBookingForm``'s controls before anything is filled in."""
+    return _defaults(mode)
+
+
+def finish_form(v: dict, round_trip: bool) -> None:
+    """What ``submitForm`` does to the form value before sending it: phones and airport coordinates."""
+    _normalise_phones(v, round_trip)
+    _mirror_airport_coordinates(v)
 
 
 def _defaults(mode: str) -> dict[str, Any]:
@@ -751,7 +768,7 @@ def _mirror_airport_coordinates(v: dict) -> None:
             v[f"{prefix}_latitude"], v[f"{prefix}_longitude"] = lat, lng
 
 
-def _currency(d: BookingDraft) -> str | None:
+def booking_currency(d: BookingDraft) -> str | None:
     """``currencyObj.currency``: set from the drop-off place's country, then the return drop-off's."""
     currency = None
     ends = [d.outbound.dropoff] + ([d.ret.dropoff] if d.is_round_trip else [])

@@ -59,6 +59,7 @@ from app.llm.base import (
 from app.schemas.chat import (
     BookingCardOut,
     BookingOut,
+    CardRequestOut,
     ChatMessageIn,
     ChatRequest,
     ChatResponse,
@@ -68,6 +69,7 @@ from app.schemas.chat import (
     UsageOut,
 )
 from app.services.booking.chat import BookingReply, BookingSessions
+from app.services.booking.edit import is_edit_request
 from app.services.context_window import fit_history
 from app.services.data.agent import DataAgent, DataResult
 from app.services.data.followups import is_place_question, standalone_questions
@@ -77,6 +79,7 @@ from app.services.data.query_log import JsonlLog
 from app.services.data.templates import template_sql
 from app.services.prompts import (
     ASK_NAME_REPLY,
+    EDIT_ELSEWHERE_REPLY,
     OFF_TOPIC_REPLY,
     build_data_context,
     build_data_reply,
@@ -254,6 +257,10 @@ class ChatService:
         """A fixed reply, a data lookup result, or None to just generate. May raise LLMError."""
         if requester.is_guest and requester.display_name is None:
             return _Canned("ask_name", ASK_NAME_REPLY)
+        if history and is_edit_request(history[-1].content):
+            # Only reached when chat booking is off: the booking sessions take edit requests first.
+            # The lookup can't change anything, and the local model times out trying (EDIT_BOOKING_FLOW.md).
+            return _Canned("answer", EDIT_ELSEWHERE_REPLY)
         if self._guard is None:
             return None
         if self._data is not None and self._can_query(requester):
@@ -696,8 +703,26 @@ def _previous_user_index(history: Sequence[ChatMessageIn], before: int) -> int |
     return None
 
 
+# What the booking flows say (summaries, change lists, "Booking #2141 updated."). The model never
+# sees it: a small model copies it and then "saves" changes nobody made.
+_FLOW_OUTPUT = re.compile(
+    r"---- (?:Booking summary|Changes to booking)|Save these changes to booking|Confirm booking\?|"
+    r"Booking #\d+ updated|Booked\. Reservation #|Which booking do you want to change\?|"
+    r"What would you like to change\?|Who should booking #\d+ be for\?"
+)
+_FLOW_STEP = "(A booking step was handled here by the booking assistant.)"
+
+
 def _llm_history(history: Sequence[ChatMessageIn]) -> list[LLMMessage]:
-    return [LLMMessage(m.role, m.content) for m in history]  # type: ignore[arg-type]
+    turns = []
+    for m in history:
+        content = m.content
+        if m.role == "assistant" and _FLOW_OUTPUT.search(content):
+            content = _FLOW_STEP
+        elif m.role == "user" and content.startswith(("card:ok", "card:error")):
+            content = "(card form sent)"
+        turns.append(LLMMessage(m.role, content))  # type: ignore[arg-type]
+    return turns
 
 
 def _fixed_data_reply(data: DataResult | None) -> _Canned | None:
@@ -732,6 +757,7 @@ def _booking_out(reply: BookingReply) -> BookingOut:
         cards_kind=reply.cards_kind,  # type: ignore[arg-type]  # "category" | "vehicle" | None
         cards=[BookingCardOut.model_validate(card) for card in reply.cards],
         replies=list(reply.replies),
+        card_request=CardRequestOut.model_validate(reply.card_request) if reply.card_request else None,
     )
 
 

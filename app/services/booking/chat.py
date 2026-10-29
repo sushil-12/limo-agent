@@ -1,9 +1,11 @@
 """Booking a ride from the web chat: one BookingFlow per signed-in user and conversation.
 
 A chat message that asks to book a ride ("book 5 am pickup on 14 nov from ord to mdw")
-starts a flow; every later message in the same conversation goes to that flow until it is
-booked, cancelled, or left idle for ``ttl_seconds``. The flow calls the 1800limo API with
-the user's own Passport token, so the API applies the same role scoping as the web app.
+starts a flow, and one that asks to change a booking ("edit booking 2141") starts an
+EditFlow (EDIT_BOOKING_FLOW.md); every later message in the same conversation goes to that
+flow until it is booked or saved, cancelled, or left idle for ``ttl_seconds``. The flow calls
+the 1800limo API with the user's own Passport token, so the API applies the same role scoping
+as the web app.
 
 The rules are the shell's (BOOKING_FLOW.md): only missing details are asked, nothing is
 booked without the full summary and an explicit "yes", and a submit is never retried.
@@ -26,7 +28,9 @@ from typing import Any
 
 from app.core.logging import get_logger
 from app.services.booking.api import BOOKING_MODES, LimoApi
+from app.services.booking.edit import EditFlow, is_edit_follow_up, is_edit_request
 from app.services.booking.flow import BookingFlow
+from app.services.booking.lookup import ReservationLookup
 from app.services.booking.maps import GoogleMaps
 from app.services.booking.reference import AirportIndex
 from app.services.requester import Requester
@@ -45,6 +49,11 @@ BOOKING_REQUEST = re.compile(
 SIGN_IN_REPLY = "Please sign in to book a ride from the chat."
 ROLE_REPLY = "Rides can't be booked from the chat with this account. Please use the website or app."
 UNAVAILABLE_REPLY = "Booking from the chat isn't available right now. Please book on the website or app."
+EDIT_SIGN_IN_REPLY = "Please sign in to change a booking from the chat."
+EDIT_ROLE_REPLY = "Bookings can't be changed from the chat with this account. Please use the website or app."
+EDIT_UNAVAILABLE_REPLY = (
+    "Changing a booking from the chat isn't available right now. Please use the website or app."
+)
 FAILED_REPLY = (
     "Sorry, something went wrong, so I stopped this booking. If you had already confirmed it, "
     "check your bookings before trying again."
@@ -71,6 +80,9 @@ class BookingReply:
     cards_kind: str | None = None  # "category" | "vehicle"
     cards: tuple[dict[str, Any], ...] = ()
     replies: tuple[str, ...] = ()
+    # A changed booking for a new customer: the widget's card form adds the card to ``payload``
+    # and sends it to the 1800limo API itself (EditFlow), so the card never reaches this server.
+    card_request: dict[str, Any] | None = None
 
 
 @dataclass
@@ -98,13 +110,17 @@ class _Session:
         # A reply on an open category / vehicle menu ("sorry, I didn't get that", "summary") carries
         # its cards again: only the latest message's cards can be picked in the widget.
         menu_open = flow.menu is not None and flow.menu.kind == self.cards_kind
+        card_request = getattr(flow, "card_request", None)
         reply = BookingReply(
             content="\n".join(self.lines).strip() or "OK.",
             active=not flow.finished,
             cards_kind=self.cards_kind if menu_open else None,
             cards=tuple(self.cards) if menu_open else (),
             replies=() if flow.finished else _suggested_replies(flow),
+            card_request=card_request if not flow.finished else None,
         )
+        if isinstance(flow, EditFlow):
+            flow.card_request = None  # sent once; the flow sets it again to show the form again
         self.lines = []
         return reply
 
@@ -118,6 +134,7 @@ class BookingSessions:
         api_factory: Callable[[str], LimoApi],
         maps: GoogleMaps | None,
         airports: Callable[[], AirportIndex],
+        lookup: ReservationLookup | None = None,
         ttl_seconds: float = 1800.0,
         max_sessions: int = 1000,
         now: Callable[[], datetime] | None = None,
@@ -126,11 +143,15 @@ class BookingSessions:
         self._api_factory = api_factory
         self._maps = maps
         self._airports = airports
+        self._lookup = lookup
         self._ttl = ttl_seconds
         self._max = max_sessions
         self._now = now
         self._clock = clock
         self._sessions: dict[str, _Session] = {}
+        # The booking each conversation last made or edited, so "change the customer" right after
+        # reaches the edit flow instead of the language model (which would only pretend to change it).
+        self._recent: dict[str, tuple[int, float]] = {}
         self._tasks: set[asyncio.Task[None]] = set()
 
     def offers(self, requester: Requester) -> bool:
@@ -148,41 +169,49 @@ class BookingSessions:
         key = _key(requester, conversation_id)
         session = self._live(key) if key is not None else None
         if session is None:
-            if not is_booking_request(text):
+            edit = is_edit_request(text)
+            recent = self._recent_booking(key) if key is not None else None
+            follow_up = recent if not edit and recent is not None and is_edit_follow_up(text) else None
+            edit = edit or follow_up is not None
+            if not edit and not is_booking_request(text):
                 return None
-            refusal = self._refusal(requester, token)
+            refusal = self._refusal(requester, token, edit=edit)
             if refusal is not None:
                 return BookingReply(refusal, active=False)
             if key is None or token is None:  # _refusal covers both; this narrows the types
-                return BookingReply(SIGN_IN_REPLY, active=False)
-            session = self._start(key, requester, token)
-            logger.info("booking_started", **requester.log_fields(), mode=session.flow.mode)
+                return BookingReply(EDIT_SIGN_IN_REPLY if edit else SIGN_IN_REPLY, active=False)
+            session = self._start(key, requester, token, edit=edit)
+            event = "booking_edit_started" if edit else "booking_started"
+            logger.info(event, **requester.log_fields(), mode=session.flow.mode)
+            if follow_up is not None and isinstance(session.flow, EditFlow):
+                return await self._turn(key, session, session.flow.start(text, reservation_id=follow_up))
             return await self._turn(key, session, session.flow.start(text))
         if token is not None:
             session.flow.api = self._api_factory(token)  # the client may have refreshed its token
         return await self._turn(key, session, session.flow.handle(text))
 
-    def _refusal(self, requester: Requester, token: str | None) -> str | None:
+    def _refusal(self, requester: Requester, token: str | None, *, edit: bool = False) -> str | None:
         if requester.is_guest or token is None:
-            return SIGN_IN_REPLY
+            return EDIT_SIGN_IN_REPLY if edit else SIGN_IN_REPLY
         if requester.role not in BOOKING_MODES:
-            return ROLE_REPLY
+            return EDIT_ROLE_REPLY if edit else ROLE_REPLY
         if self._maps is None:
             logger.warning("booking_unavailable", reason="GOOGLE_MAPS_API_KEY is not set")
-            return UNAVAILABLE_REPLY
+            return EDIT_UNAVAILABLE_REPLY if edit else UNAVAILABLE_REPLY
         return None
 
-    def _start(self, key: str, requester: Requester, token: str) -> _Session:
+    def _start(self, key: str, requester: Requester, token: str, *, edit: bool = False) -> _Session:
         self._prune()
         mode = BOOKING_MODES[requester.role]
-        flow = BookingFlow(
-            mode=mode,
-            user_id=requester.user_id or 0,
-            api=self._api_factory(token),
-            maps=self._maps,  # type: ignore[arg-type]  # _refusal returned for None
-            airports=self._airports(),
-            card_form=False,
-        )
+        common: dict[str, Any] = {
+            "mode": mode,
+            "user_id": requester.user_id or 0,
+            "api": self._api_factory(token),
+            "maps": self._maps,  # _refusal returned for None
+            "airports": self._airports(),
+            "card_form": False,
+        }
+        flow = EditFlow(**common, lookup=self._lookup) if edit else BookingFlow(**common)
         if self._now is not None:
             flow.now = self._now
         session = _Session(flow=flow, used=self._clock())
@@ -210,7 +239,16 @@ class BookingSessions:
             reply = session.take_reply()
         if not reply.active:
             self._sessions.pop(key, None)
+            if (reservation_id := _booking_of(session.flow)) is not None:
+                self._recent[key] = (reservation_id, self._clock())
         return reply
+
+    def _recent_booking(self, key: str) -> int | None:
+        found = self._recent.get(key)
+        if found is None or self._clock() - found[1] > self._ttl:
+            self._recent.pop(key, None)
+            return None
+        return found[0]
 
     def _live(self, key: str) -> _Session | None:
         session = self._sessions.get(key)
@@ -223,9 +261,22 @@ class BookingSessions:
         cutoff = self._clock() - self._ttl
         for key in [k for k, s in self._sessions.items() if s.used < cutoff]:
             del self._sessions[key]
+        for key in [k for k, (_, used) in self._recent.items() if used < cutoff]:
+            del self._recent[key]
         while len(self._sessions) >= self._max:
             oldest = min(self._sessions, key=lambda k: self._sessions[k].used)
             del self._sessions[oldest]
+
+
+def _booking_of(flow: BookingFlow) -> int | None:
+    """The booking a finished flow made or edited."""
+    if isinstance(flow, EditFlow):
+        return flow.reservation_id
+    booked = flow._booked or {}
+    try:
+        return int(booked["reservation_id"])
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def _key(requester: Requester, conversation_id: str | None) -> str | None:
@@ -239,7 +290,9 @@ def _suggested_replies(flow: BookingFlow) -> tuple[str, ...]:
     pending = flow.pending or ""
     menu = flow.menu.kind if flow.menu is not None else ""
     replies: tuple[str, ...] = ()
-    if pending in ("confirm", "relative", "return_route", "card"):
+    if pending == "passenger_choice":
+        replies = ("1", "2")
+    elif pending in ("confirm", "relative", "return_route", "card", "proceed"):
         replies = _YES_NO
     elif pending == "service":
         replies = ("One way", "Round trip", "Charter")
@@ -251,6 +304,8 @@ def _suggested_replies(flow: BookingFlow) -> tuple[str, ...]:
         replies = ("Skip",)
     elif pending in ("stops", "return_stops"):
         replies = ("No",)
+    if isinstance(flow, EditFlow) and flow.reservation_id is not None and pending != "proceed":
+        replies = (*replies, "Undo")
     if menu == "vehicle":
         replies = (*replies, "Back")
     return (*replies, "Cancel")

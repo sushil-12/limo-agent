@@ -310,7 +310,8 @@ def test_prompt_explains_chat_booking_only_to_users_who_can_book(can_look_up: bo
     assert "book a ride from ORD" in rider
     assert "cannot create" not in rider
     assert "create, change or cancel" not in rider
-    assert "You cannot change or cancel" in rider
+    assert "edit booking 2141" in rider
+    assert "You cannot cancel bookings" in rider
     other = build_system_prompt(RIDER, can_look_up=can_look_up)
     assert "book a ride from ORD" not in other
     assert "create, change or cancel bookings" in other

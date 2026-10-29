@@ -28,6 +28,7 @@ from app.llm.base import LLMError, LLMProvider
 from app.llm.factory import create_llm_provider, create_ollama_client
 from app.services.booking.api import LimoApi
 from app.services.booking.chat import BookingSessions
+from app.services.booking.lookup import ReservationLookup
 from app.services.booking.maps import GoogleMaps
 from app.services.booking.reference import airport_index
 from app.services.chat_service import ChatService
@@ -95,7 +96,7 @@ def _build_data_agent(
     )
 
 
-def _build_booking(settings: Settings, client: httpx.AsyncClient) -> BookingSessions:
+def _build_booking(settings: Settings, client: httpx.AsyncClient, engine: AsyncEngine) -> BookingSessions:
     """Booking from the chat; it answers "not available" when GOOGLE_MAPS_API_KEY is missing."""
     key = settings.google_maps_api_key
 
@@ -106,6 +107,7 @@ def _build_booking(settings: Settings, client: httpx.AsyncClient) -> BookingSess
         api_factory=api_for,
         maps=GoogleMaps(key.get_secret_value(), client) if key is not None else None,
         airports=airport_index,
+        lookup=ReservationLookup(engine),
         ttl_seconds=settings.chat_booking_ttl_seconds,
     )
 
@@ -150,7 +152,7 @@ def _build_lifespan(
             data_agent=data_agent,
             chat_log=JsonlLog(settings.chat_log_path) if settings.chat_log_path else None,
             log_content=log_content,
-            booking=_build_booking(settings, booking_http) if booking_http is not None else None,
+            booking=_build_booking(settings, booking_http, db_engine) if booking_http is not None else None,
         )
         app.state.health_service = HealthService(
             db_engine,

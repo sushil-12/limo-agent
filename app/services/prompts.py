@@ -98,8 +98,16 @@ _CANNOT_LOOK_UP = """- You cannot yet look up, create, change or cancel bookings
   If asked, say so and point the user to the app or to customer support."""
 _CANNOT_CREATE = "create, change or cancel bookings"
 _CAN_BOOK = """- To book a ride here, the user types the trip, for example "book a ride from ORD to
-  233 S Wacker Dr tomorrow at 5 pm"; the booking steps then take over. You cannot change or cancel
-  bookings: point the user to the app or customer support for that. Never say a ride is booked."""
+  233 S Wacker Dr tomorrow at 5 pm"; the booking steps then take over. To change a booking, the
+  user types "edit booking" and its number, for example "edit booking 2141" (without a number they
+  pick from a list). You cannot cancel bookings: point the user to the app or customer support for
+  that. Never say a ride is booked or changed, and never write a booking summary or a list of
+  changes yourself: only the booking steps can change a booking."""
+
+EDIT_ELSEWHERE_REPLY = (
+    "I can't change bookings in this chat right now. Please use My Bookings in the 1800Limo app or "
+    "website, or contact customer support."
+)
 
 _NO_TECH = "Do not mention SQL, queries, tables, columns or databases. Never invent records or numbers."
 _ANSWER_VALUE = f"Reply in one short sentence with this number. {_NO_TECH}"
@@ -228,7 +236,7 @@ def _capabilities(*, can_look_up: bool, can_book: bool) -> str:
     if can_look_up:  # its last line is the "cannot create, change or cancel" one
         lines = lines[:-1]
     else:
-        lines[0] = lines[0].replace(_CANNOT_CREATE, "change or cancel bookings")
+        lines[0] = lines[0].replace(_CANNOT_CREATE, "cancel bookings")
     return "\n".join([*lines, _CAN_BOOK])
 
 

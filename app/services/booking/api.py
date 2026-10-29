@@ -7,10 +7,18 @@ never logged or included in an error message.
 
 from __future__ import annotations
 
+import itertools
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
+# TEMP: numbers every Laravel API call this process makes (trace duplicate edit-reservation calls)
+_request_counter = itertools.count(1)
 
 
 class ApiError(Exception):
@@ -43,6 +51,9 @@ class RolePaths:
     mode: str  # admin | individual | travel_agent
     create_reservation: str
     add_credit_card: str
+    get_reservation: str  # one booking, prefilled for editing (EDIT_BOOKING_FLOW.md §1), {id}
+    edit_reservation: str
+    edit_method: str  # the individual portal POSTs its edit; the others PUT
     accounts: str = ""  # list of customer accounts the role books for
     account: str = ""  # one account's details, {id}
 
@@ -52,6 +63,9 @@ ROLE_PATHS = {
         mode="admin",
         create_reservation="create-reservation",
         add_credit_card="add-credit-card",
+        get_reservation="get-reservation/{id}/edit",
+        edit_reservation="edit-reservation",
+        edit_method="PUT",
         accounts="get-account-by-type/individual",
         account="get-an-account/{id}",
     ),
@@ -59,12 +73,18 @@ ROLE_PATHS = {
         mode="individual",
         create_reservation="individual/create-reservation",
         add_credit_card="individual/add-credit-card",
+        get_reservation="individual/get-reservation/{id}/edit",
+        edit_reservation="individual/edit-reservation",
+        edit_method="POST",
         account="individual/get-account-details",
     ),
     "travel_agent": RolePaths(
         mode="travel_agent",
         create_reservation="travel-planner/create-reservation",
         add_credit_card="travel-planner/add-credit-card",
+        get_reservation="travel-planner/get-reservation/{id}/edit",
+        edit_reservation="travel-planner/edit-reservation",
+        edit_method="PUT",
         accounts="travel-planner/get-account-by-type/individual",
         account="travel-planner/get-an-account/{id}",
     ),
@@ -93,15 +113,30 @@ class LimoApi:
     async def post(self, path: str, body: dict[str, Any]) -> Any:
         return await self._request("POST", path, body)
 
+    async def put(self, path: str, body: dict[str, Any]) -> Any:
+        return await self._request("PUT", path, body)
+
     async def _request(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
         url = self.base_url.rstrip("/") + "/" + path.lstrip("/")
         headers = {"Authorization": f"Bearer {self.token}", "Accept": "application/json"}
+        call_no = next(_request_counter)
+        logger.info("limo_api_request", call_no=call_no, method=method, path=path)
+        started = time.monotonic()
         try:
             response = await self.client.request(
                 method, url, json=body, headers=headers, timeout=self.timeout
             )
         except httpx.HTTPError as exc:
+            logger.info("limo_api_unreachable", call_no=call_no, method=method, path=path, error=type(exc).__name__)
             raise ApiUnreachableError(f"no response from the booking API ({type(exc).__name__})") from None
+        logger.info(
+            "limo_api_response",
+            call_no=call_no,
+            method=method,
+            path=path,
+            status=response.status_code,
+            ms=round((time.monotonic() - started) * 1000),
+        )
         try:
             payload = response.json()
         except ValueError:
@@ -126,6 +161,10 @@ class LimoApi:
 
     async def master_vehicle_info(self, vehicle_id: int) -> dict[str, Any]:
         return (await self.get(f"get-master-vehicle-info/{vehicle_id}")).get("data") or {}
+
+    async def reservation_rates(self, reservation_id: int) -> dict[str, Any]:
+        """The rate lines and totals saved on a booking (admin only, ``admin.service.ts:1250``)."""
+        return (await self.get(f"admin/reservation-rates/{reservation_id}")).get("data") or {}
 
     async def common_data(self) -> dict[str, Any]:
         """Airlines and meet & greet choices (``createBookingGetData``)."""

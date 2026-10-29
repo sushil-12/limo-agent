@@ -261,6 +261,36 @@ Other choices (which airport, which airline, ...) stay as numbered lists in `con
 the user answers with the number. Only show `cards` and `replies` on the latest message
 while `active` is `true`.
 
+**Changing a booking** uses the same `reply_type: "booking"` and `booking` object. A signed-in
+rider, travel agent or admin starts it with "edit booking 2141", "change my booking #2141" or
+"booking 2141 ka time badalna hai"; without a number they get a numbered list of their upcoming
+bookings. The reply shows the booking, and each change ("change time to 6 pm", "change
+passengers to 3", "vehicles") is answered with the list of changes (old → new) and "Save these
+changes? (yes/no)". `replies` adds `"Undo"`. Paid, cancelled, completed and refunded bookings
+are refused, and a booking can't be turned into a round trip or moved to another customer
+(EDIT_BOOKING_FLOW.md). When chat booking is off, an edit request gets a fixed reply that points
+to the app instead of a data lookup.
+
+Changing the customer to a **new** customer needs their card. Then `booking` carries a
+`card_request` instead of saving:
+
+```json
+"card_request": {
+  "method": "PUT",
+  "path": "edit-reservation",
+  "payload": { "...": "the whole edit request, loose_customer.card_details empty" },
+  "card_holder": "Lisa Taylor"
+}
+```
+
+Show a card form under the latest message while `active` is `true`. On submit, put the card into
+`payload.loose_customer.card_details` (`name`, `card_number`, `exp_month`, `exp_year`, `cvv`) and
+send `method` to the 1800limo API (`serverUrl` + `path`) with the user's bearer token. **Never
+send the card to this API.** If the answer has `data.is_confirm == false`, send it once more with
+`proceed: false`. Then send the chat message `card:ok`, or `card:error <the API's message>`; the
+assistant checks the booking and replies. The 1800-limo widget does this
+(`AiAssistantService.submitCard`).
+
 #### Response with `stream: true` (Server-Sent Events)
 
 `200` with headers:

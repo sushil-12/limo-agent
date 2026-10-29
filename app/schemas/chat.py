@@ -96,6 +96,13 @@ class BookingCardOut(BaseModel):
     images: list[str]  # absolute photo URLs, main photo first; may be empty
 
 
+class CardRequestOut(BaseModel):
+    method: Literal["PUT", "POST"]
+    path: str  # relative to the 1800limo API base URL (the web app's serverUrl)
+    payload: dict[str, Any]
+    card_holder: str
+
+
 class BookingOut(BaseModel):
     """The booking state behind a reply_type="booking" answer."""
 
@@ -103,6 +110,10 @@ class BookingOut(BaseModel):
     cards_kind: Literal["category", "vehicle"] | None
     cards: list[BookingCardOut]  # replace the numbered list in ``content``
     replies: list[str]  # suggested answers to show as buttons
+    # Set when changing a booking needs a new customer's card: the client's card form adds the
+    # card to ``payload.loose_customer.card_details`` and sends ``method`` ``path`` to the 1800limo
+    # API with the user's token, then posts "card:ok" or "card:error <message>" to the chat.
+    card_request: CardRequestOut | None = None
 
 
 class ChatResponse(BaseModel):

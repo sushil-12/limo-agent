@@ -28,6 +28,10 @@ Booking a ride (needs :login; admin, sub_admin, rider and travel agent accounts)
                     line goes to the booking: a number picks from the last list; 'change
                     passengers to 3', 'back', 'vehicles', 'summary', 'cancel' work any time.
                     Nothing is booked until you see the summary and answer yes.
+    :edit [ID]      change a saved booking, e.g. :edit 2141 (or type "edit booking 2141" in chat
+                    mode); without an id, pick from your upcoming bookings. 'change time to 6 pm',
+                    'vehicles', 'reprice' (admins), 'undo', 'summary', 'cancel' work any time.
+                    Nothing is saved until you see the old -> new changes and answer yes.
     :card [ACC_ID]  add a payment card in a browser form on this machine (the number is never
                     typed here): your own account, or ACC_ID's account for admins
 
@@ -77,7 +81,9 @@ from app.schemas.chat import ChatMessageIn, ChatRequest
 from app.services.booking.api import BOOKING_MODES, ROLE_PATHS, ApiError, LimoApi
 from app.services.booking.card_form import collect_card
 from app.services.booking.chat import is_booking_request
+from app.services.booking.edit import EditFlow, is_edit_request
 from app.services.booking.flow import BookingFlow, add_card
+from app.services.booking.lookup import ReservationLookup
 from app.services.booking.maps import GoogleMaps
 from app.services.booking.reference import airport_index
 from app.services.chat_service import ChatDelta, ChatFailed, ChatService
@@ -155,6 +161,8 @@ class Shell:
                 await self.booking.handle(line)
                 if self.booking.finished:
                     self.booking = None
+            elif self.mode == "chat" and is_edit_request(line):
+                await self.edit(line)
             elif self.mode == "chat" and is_booking_request(line):
                 await self.book(line)
             else:
@@ -193,6 +201,8 @@ class Shell:
                 self.whoami()
             case "book":
                 await self.book(rest)
+            case "edit":
+                await self.edit(rest)
             case "card":
                 await self.card(rest)
             case "eval":
@@ -389,6 +399,30 @@ class Shell:
             maps=GoogleMaps(key.get_secret_value(), api.client),
             airports=airport_index(),
             account_for_reservation=self._reservation_account if mode == "admin" else None,
+        )
+        await self.booking.start(request)
+        if self.booking.finished:
+            self.booking = None
+
+    async def edit(self, request: str) -> None:
+        if self.booking is not None:
+            print("already booking; finish it or say 'cancel' first")
+            return
+        found = self._booking_api()
+        if found is None:
+            return
+        api, mode = found
+        key = self.settings.google_maps_api_key
+        if key is None:
+            print("changing a booking needs GOOGLE_MAPS_API_KEY in .env (new places are looked up on Google)")
+            return
+        self.booking = EditFlow(
+            mode=mode,
+            user_id=self.user.id if self.user else 0,
+            api=api,
+            maps=GoogleMaps(key.get_secret_value(), api.client),
+            airports=airport_index(),
+            lookup=ReservationLookup(self.engine),
         )
         await self.booking.start(request)
         if self.booking.finished:
