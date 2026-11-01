@@ -128,6 +128,12 @@ reservations = Table(
     Column("pickup_longitude", Numeric(11, 8)),
     Column("dropoff_latitude", Numeric(11, 8)),
     Column("dropoff_longitude", Numeric(11, 8)),
+    # Read-only, for the share-link ride summary. Airport pickups leave `pickup` blank and
+    # put the text in `pickup_address`; same for dropoff.
+    Column("pickup", Text),
+    Column("pickup_address", Text),
+    Column("dropoff", Text),
+    Column("dropoff_address", Text),
     Column("current_stop_index", SmallInteger),
     Column("current_stop_status", String(32)),
     Column("total_stops", SmallInteger),

@@ -43,6 +43,7 @@ CREATE TABLE tbl_reservations (
     id INTEGER PRIMARY KEY, acc_id INTEGER, travel_client_id INTEGER, affiliate_id INTEGER, driver_id INTEGER,
     booking_status TEXT, status_change_flag TEXT, service_type TEXT, extra_stops TEXT,
     pickup_latitude REAL, pickup_longitude REAL, dropoff_latitude REAL, dropoff_longitude REAL,
+    pickup TEXT, pickup_address TEXT, dropoff TEXT, dropoff_address TEXT,
     current_stop_index INTEGER, current_stop_status TEXT, total_stops INTEGER,
     stop_status_updated_at DATETIME, updated_at DATETIME);
 CREATE TABLE tbl_booking_status_history (

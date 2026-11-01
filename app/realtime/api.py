@@ -148,6 +148,24 @@ async def create_share_link(ride_id: int, rt: RtDep, user: UserDep) -> ORJSONRes
     return ORJSONResponse({"token": token, "expires_at": expires})
 
 
+@router.get("/share/ride")
+async def shared_ride(rt: RtDep, viewer: ViewerDep) -> ORJSONResponse:
+    """The ride behind a share token (`Authorization: Bearer <share token>`), for the public
+    tracking page. Live position and status then come over the socket (`hello` with the same
+    token). Expired once the ride is over."""
+    if not isinstance(viewer, ShareGrant):
+        raise ForbiddenError("Share token required.")
+    info = await rt.rides.get(viewer.ride_id)
+    if info is None:
+        raise NotFoundError("Ride not found.")
+    if info.is_over:
+        raise ForbiddenError("This tracking link has expired.", code="share_expired")
+    summary = await rt.rides.summary(viewer.ride_id)
+    if summary is None:
+        raise NotFoundError("Ride not found.")
+    return ORJSONResponse({**summary, "expires_at": viewer.expires_at})
+
+
 # --- Chat --------------------------------------------------------------------------------
 
 

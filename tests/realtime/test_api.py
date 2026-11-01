@@ -273,6 +273,38 @@ def test_only_passenger_can_create_share_link(h: RtHarness, rt_token: TokenFacto
     assert r.json()["expires_at"] > 0
 
 
+def test_share_token_reads_the_ride_summary_and_nothing_else(h: RtHarness, rt_token: TokenFactory) -> None:
+    h.sql(
+        "UPDATE tbl_reservations SET pickup='', pickup_address='JFK Terminal 4', "
+        "dropoff='1 Central Park West', extra_stops=? WHERE id=?",
+        ('[{"address":"Stop A","latitude":40.76,"longitude":-73.98},{"address":"Stop B"}]', LIVE_RIDE),
+    )
+    rider = rt_token(RIDER)
+    token = h.client.post(f"/rt/v1/rides/{LIVE_RIDE}/share", headers=bearer(rider)).json()["token"]
+
+    r = h.client.get("/rt/v1/share/ride", headers=bearer(token))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ride_id"] == str(LIVE_RIDE)
+    assert body["status"] == "en_route_pu"
+    assert body["driver_first_name"] == "Dev"
+    assert body["pickup"] == {"address": "JFK Terminal 4", "lat": 40.75, "lng": -73.99}
+    assert body["dropoff"]["address"] == "1 Central Park West"
+    assert [s["address"] for s in body["stops"]] == ["Stop A", "Stop B"]
+    assert body["stops"][1]["lat"] is None
+    assert body["expires_at"] > 0
+    assert "phone" not in r.text
+    assert "Asha" not in r.text  # nothing about the passenger
+
+    # A share token can't use the rider's own endpoints, and a user token can't use this one.
+    assert h.client.get(f"/rt/v1/rides/{LIVE_RIDE}/messages", headers=bearer(token)).status_code in (401, 403)
+    assert h.client.get("/rt/v1/share/ride", headers=bearer(rider)).status_code == 403
+
+    h.sql("UPDATE tbl_reservations SET booking_status='ended' WHERE id=?", (LIVE_RIDE,))
+    h.call(h.rt.rides.invalidate, LIVE_RIDE)
+    assert h.client.get("/rt/v1/share/ride", headers=bearer(token)).status_code == 403
+
+
 def test_rest_location_fallback(h: RtHarness, rt_token: TokenFactory) -> None:
     rider = rt_token(RIDER)
     url = f"/rt/v1/rides/{LIVE_RIDE}/location"

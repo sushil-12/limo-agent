@@ -113,6 +113,41 @@ def parse_stops(raw: object) -> tuple[Point, ...]:
     return tuple(out)
 
 
+def _address(primary: object, fallback: object) -> str | None:
+    for value in (primary, fallback):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def stop_summaries(raw: object) -> list[dict[str, Any]]:
+    """``extra_stops`` JSON -> the stops a viewer sees, numbered in booking order. Unlike
+    :func:`parse_stops`, a stop without coordinates is kept (its address is still useful)."""
+    if isinstance(raw, str | bytes):
+        try:
+            raw = orjson.loads(raw)
+        except orjson.JSONDecodeError:
+            return []
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for number, stop in enumerate(raw, start=1):
+        if not isinstance(stop, dict):
+            continue
+        point = _point(
+            stop.get("latitude", stop.get("lat")), stop.get("longitude", stop.get("lng", stop.get("lon")))
+        )
+        out.append(
+            {
+                "number": number,
+                "address": _address(stop.get("address"), stop.get("location")),
+                "lat": point.lat if point else None,
+                "lng": point.lng if point else None,
+            }
+        )
+    return out
+
+
 class RideDirectory:
     def __init__(self, engine: AsyncEngine, store: RtStore, *, cache_ttl: int = 60) -> None:
         self._engine = engine
@@ -128,6 +163,42 @@ class RideDirectory:
         if info is not None:
             await self._store.put_ride_cache(ride_id, info.to_cache(), self._ttl)
         return info
+
+    async def summary(self, ride_id: int) -> dict[str, Any] | None:
+        """What a share-link viewer needs to draw the ride: endpoints, stops, the driver's first
+        name and the status. Nothing about the passenger, and no phone numbers."""
+        info = await self.get(ride_id)
+        if info is None:
+            return None
+        r = reservations
+        async with self._engine.connect() as conn:
+            row = (
+                await conn.execute(
+                    select(
+                        r.c.pickup, r.c.pickup_address, r.c.dropoff, r.c.dropoff_address, r.c.extra_stops
+                    ).where(r.c.id == ride_id)
+                )
+            ).first()
+        if row is None:
+            return None
+        m = row._mapping
+
+        def end(address: str | None, point: Point | None) -> dict[str, Any]:
+            return {
+                "address": address,
+                "lat": point.lat if point else None,
+                "lng": point.lng if point else None,
+            }
+
+        return {
+            "ride_id": str(info.id),
+            "status": info.status,
+            "driver_first_name": info.driver_first_name,
+            "pickup": end(_address(m["pickup"], m["pickup_address"]), info.pickup),
+            "dropoff": end(_address(m["dropoff"], m["dropoff_address"]), info.dropoff),
+            "stops": stop_summaries(m["extra_stops"]),
+            "current_stop_index": info.current_stop_index,
+        }
 
     async def invalidate(self, ride_id: int) -> None:
         await self._store.drop_ride_cache(ride_id)
