@@ -4,7 +4,7 @@ BIN    := $(VENV)/bin
 OLLAMA_MODEL ?= $(shell grep -E '^OLLAMA_MODEL=' .env 2>/dev/null | cut -d= -f2 || true)
 OLLAMA_MODEL := $(or $(OLLAMA_MODEL),llama3.1:8b)
 
-.PHONY: install dev shell test test-integration lint format pull-model
+.PHONY: install dev shell test test-integration lint format pull-model rt-dev rt-test rt-migrate
 
 install:  ## Create the virtualenv and install pinned dev dependencies
 	$(PYTHON) -m venv $(VENV)
@@ -34,3 +34,13 @@ format:
 
 pull-model:  ## Pull OLLAMA_MODEL into the local Ollama
 	ollama pull $(OLLAMA_MODEL)
+
+rt-dev:  ## Run the realtime service (limo-rt) with auto-reload (reads .env; needs Redis)
+	$(BIN)/uvicorn --factory app.realtime.main:create_app --reload --host 0.0.0.0 --port 9100 \
+		--loop uvloop --http httptools --ws websockets --ws-ping-interval 20 --ws-ping-timeout 20 --no-access-log
+
+rt-test:  ## Realtime service tests only
+	$(BIN)/pytest tests/realtime
+
+rt-migrate:  ## Create/upgrade the tbl_rt_* tables (RT_MIGRATE_DB_USERNAME/PASSWORD in .env)
+	$(BIN)/alembic -c alembic_rt.ini upgrade head

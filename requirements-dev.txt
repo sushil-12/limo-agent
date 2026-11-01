@@ -4,3 +4,4 @@ pytest-asyncio==1.4.0
 respx==0.23.1
 aiosqlite==0.22.1
 ruff==0.17.0
+fakeredis==2.39.0

@@ -1,0 +1,3 @@
+# Only for the one-time Mongo -> MySQL copy (python -m app.realtime.etl).
+-r requirements.txt
+pymongo==4.18.3

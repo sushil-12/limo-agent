@@ -14,3 +14,8 @@ httpx==0.28.1
 orjson==3.13.0
 sqlglot==30.22.0
 structlog==26.1.0
+# Realtime service (app/realtime)
+redis==8.0.1
+alembic==1.20.0
+websockets==15.0.1
+python-multipart==0.0.32

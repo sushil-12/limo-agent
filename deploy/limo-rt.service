@@ -1,0 +1,33 @@
+# systemd unit for the realtime service. Install:
+#   sudo cp deploy/limo-rt.service /etc/systemd/system/ && sudo systemctl daemon-reload
+#   sudo systemctl enable --now limo-rt
+# Logs: journalctl -u limo-rt -f   (JSON lines; ship to CloudWatch later with the agent)
+[Unit]
+Description=limo-rt realtime service (WebSocket, ride status, push)
+After=network-online.target redis-limo-rt.service
+Wants=network-online.target redis-limo-rt.service
+
+[Service]
+Type=exec
+User=limoagent
+Group=limoagent
+WorkingDirectory=/opt/limoagent
+EnvironmentFile=/opt/limoagent/.env
+# One worker on purpose: background jobs and fan-out are designed for it (and stay correct
+# with more instances, thanks to Redis locks and pub/sub), and <=10 rides need no more.
+ExecStart=/opt/limoagent/.venv/bin/uvicorn --factory app.realtime.main:create_app \
+    --host 127.0.0.1 --port 9100 --loop uvloop --http httptools --ws websockets \
+    --ws-ping-interval 20 --ws-ping-timeout 20 --timeout-graceful-shutdown 10 \
+    --proxy-headers --forwarded-allow-ips 127.0.0.1 --no-access-log
+Restart=always
+RestartSec=2
+# Graceful stop: close sockets (clients reconnect and replay), flush trail points.
+KillSignal=SIGTERM
+TimeoutStopSec=20
+LimitNOFILE=65536
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

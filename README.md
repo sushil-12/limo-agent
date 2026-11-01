@@ -11,8 +11,20 @@ login token.
 
 The frontend contract is in **[docs/API.md](docs/API.md)**.
 
-> Laravel owns the schema. This service never creates, alters or migrates tables:
-> no `create_all`, no Alembic.
+> **Database ownership rule.** Laravel owns its schema; Python never creates, alters or
+> drops a Laravel table.
+>
+> - **The AI chatbot** (`app.main`) connects as the read-only `DB_USERNAME` and never
+>   writes. It must not import `app.realtime`.
+> - **The realtime service** (`app.realtime.main`, a separate process) connects as its own
+>   writer, `RT_DB_USERNAME`. It may write only to its own `tbl_rt_*` tables, the seven
+>   ride-status columns of `tbl_reservations`, and new rows in `tbl_booking_status_history`.
+>   MySQL grants enforce this (`docs/realtime/GRANTS.sql`).
+> - **Alembic** (`alembic_rt.ini`, deploy-time user `RT_MIGRATE_DB_USERNAME`) manages
+>   `tbl_rt_*` tables only. `tests/realtime/test_migrations.py` fails on any revision
+>   that names another table.
+>
+> The realtime service is documented in **[docs/realtime/README.md](docs/realtime/README.md)**.
 
 ---
 
