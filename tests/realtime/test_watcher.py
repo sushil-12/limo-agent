@@ -67,9 +67,29 @@ def test_admin_cancel_reaches_rider(h: RtHarness, rt_token: TokenFactory, pushes
         subscribe(ws, rt_token(RIDER))
         laravel_update(h, "booking_status = 'cancelled'")
         assert h.call(w.scan_recent) == 1
-        frame = receive_until(ws, "ride.cancelled")
-    assert frame["data"]["by"] == "admin"
+        frame = receive_until(ws, "ride.status")
+    assert frame["data"]["status"] == "cancelled"
+    assert frame["data"]["cancelled_by"] == "admin"
     assert h.call(w.scan_recent) == 0  # reported once
+
+
+def test_watcher_does_not_repeat_an_explicit_cancel(
+    h: RtHarness, rt_token: TokenFactory, pushes: list
+) -> None:
+    w = watcher(h)
+    h.call(w.sweep_open)
+    laravel_update(h, "booking_status = 'cancelled'")
+    r = h.client.post(
+        "/internal/v1/ride-events",
+        json={"ride_id": LIVE_RIDE, "kind": "cancelled", "by": "rider"},
+        headers={"x-secret": h.rt.settings.rt_internal_secret.get_secret_value()},
+    )
+    assert r.status_code == 202
+    assert h.call(w.scan_recent) == 0  # the snapshot already says cancelled
+    assert h.call(h.rt.store.current_seq, LIVE_RIDE) == 1
+    events = h.call(h.rt.store.replay, LIVE_RIDE, 0)[0]
+    assert '"prev":"en_route_pu"' in events[0]
+    assert '"cancelled_by":"rider"' in events[0]
 
 
 def test_reassignment_drops_old_driver(h: RtHarness, rt_token: TokenFactory, pushes: list) -> None:

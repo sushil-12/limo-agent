@@ -361,10 +361,64 @@ def test_internal_cancel_notifies_and_ends_ride(
             "/internal/v1/ride-events", json={"ride_id": LIVE_RIDE, "kind": "cancelled"}, headers=INTERNAL
         )
         assert r.status_code == 202
-        frame = receive_until(ws, "ride.cancelled")
-    assert frame["data"]["by"] == "admin"
+        frame = receive_until(ws, "ride.status")
+    assert frame["data"]["status"] == "cancelled"
+    assert frame["data"]["cancelled_by"] == "admin"
+    assert frame["data"]["prev"] is None  # no watcher snapshot for this ride yet
     h.drain()
     assert h.call(h.rt.redis.ttl, f"rt:ride:{LIVE_RIDE}:events") <= h.rt.settings.rt_stream_ttl_ended_seconds
+
+
+def _cancel(h: RtHarness, by: str) -> Any:
+    h.sql("UPDATE tbl_reservations SET booking_status='cancelled' WHERE id=?", (LIVE_RIDE,))
+    return h.client.post(
+        "/internal/v1/ride-events",
+        json={"ride_id": LIVE_RIDE, "kind": "cancelled", "by": by},
+        headers=INTERNAL,
+    )
+
+
+def test_rider_cancel_tells_the_driver_only(
+    h: RtHarness, rt_token: TokenFactory, pushes: list, laravel: Any
+) -> None:
+    register(h, rt_token(RIDER), "rider-token-0000000000000001")
+    register(h, rt_token(DRIVER), "driver-token-000000000000001", app="driver")
+    assert _cancel(h, "rider").status_code == 202
+    h.drain()
+    assert [t for t, _ in pushes] == ["driver-token-000000000000001"]
+    push = pushes[0][1]
+    assert push.title == "Ride cancelled"
+    assert push.body == "The customer has cancelled this ride."
+    assert push.data["cancelled_by"] == "rider"
+    assert push.data["status"] == "cancelled"
+    assert push.data["bookingId"] == str(LIVE_RIDE)
+
+
+def test_driver_cancel_tells_the_rider_only(
+    h: RtHarness, rt_token: TokenFactory, pushes: list, laravel: Any
+) -> None:
+    register(h, rt_token(RIDER), "rider-token-0000000000000001")
+    register(h, rt_token(DRIVER), "driver-token-000000000000001", app="driver")
+    assert _cancel(h, "driver").status_code == 202
+    h.drain()
+    assert [t for t, _ in pushes] == ["rider-token-0000000000000001"]
+    assert pushes[0][1].body == "Your driver has cancelled this ride. We're sorry for the inconvenience."
+
+
+def test_cancel_is_announced_once(h: RtHarness, rt_token: TokenFactory, pushes: list, laravel: Any) -> None:
+    register(h, rt_token(DRIVER), "driver-token-000000000000001", app="driver")
+    with h.client.websocket_connect("/rt/v1/ws") as ws:
+        ws.send_json(hello(rt_token(RIDER)))
+        receive_until(ws, "welcome")
+        ws.send_json({"v": 1, "type": "subscribe", "ride_id": str(LIVE_RIDE)})
+        receive_until(ws, "subscribed")
+        assert _cancel(h, "rider").status_code == 202
+        assert _cancel(h, "admin").status_code == 202  # e.g. a retried call
+        frame = receive_until(ws, "ride.status")
+    h.drain()
+    assert frame["data"]["cancelled_by"] == "rider"
+    assert h.call(h.rt.store.current_seq, LIVE_RIDE) == 1
+    assert len(pushes) == 1
 
 
 def test_internal_driver_change_drops_old_location(

@@ -206,6 +206,11 @@ class RtStore:
     async def put_snapshot(self, ride_id: int, snapshot: dict[str, Any]) -> None:
         await self.redis.set(_k(ride_id, "snap"), orjson.dumps(snapshot), ex=SNAPSHOT_TTL)
 
+    async def claim_cancellation(self, ride_id: int) -> bool:
+        """True for the first caller only. A cancellation can be reported by Laravel's
+        explicit ride event and by the reservation watcher; it must reach people once."""
+        return bool(await self.redis.set(_k(ride_id, "cancelled"), "1", nx=True, ex=self._ttl_ended))
+
     async def snapshot_status(self, ride_id: int, status: str) -> None:
         """After limo-rt writes a status itself, so the watcher doesn't report it back."""
         snapshot = await self.get_snapshot(ride_id)

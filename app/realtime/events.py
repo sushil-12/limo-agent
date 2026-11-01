@@ -39,6 +39,13 @@ _STATUS_COPY: dict[str, tuple[str, str, bool, bool]] = {
     statuses.ENDED: ("Ride complete", "Thanks for riding with 1800LIMO.", False, True),
 }
 
+# What the other side of a cancellation is told. The canceller is not notified.
+_CANCEL_COPY = {
+    "by_rider": "The customer has cancelled this ride.",
+    "by_driver": "Your driver has cancelled this ride. We're sorry for the inconvenience.",
+    "by_admin": "This ride has been cancelled by 1800LIMO.",
+}
+
 _SMS_COPY = {
     statuses.ON_LOCATION: "1800LIMO: Your chauffeur has arrived at your pickup location.",
     "cancelled": "1800LIMO: Your ride #{ride} has been cancelled.",
@@ -142,27 +149,55 @@ class RideEvents:
     # --- changes Laravel makes (admin, dispatch, rider cancel) ---------------------------
 
     async def ride_cancelled(self, ride_id: int, *, by: str) -> None:
+        """Announce a cancellation once, as ``ride.status`` with ``cancelled_by``.
+
+        Laravel calls this right after its commit (with the real ``by``); the watcher may also
+        see the change. Whichever comes first wins and the other is a no-op. The status
+        snapshot is updated too, so the watcher doesn't report this change back as news.
+        Push copy depends on who cancelled; the side that cancelled is not notified.
+        """
+        if not await self._store.claim_cancellation(ride_id):
+            return
         info = await self._rides.get(ride_id, fresh=True)
         if info is None:
             return
+        snapshot = await self._store.get_snapshot(ride_id)
+        previous = snapshot.get("status") if snapshot else None
+        await self._store.snapshot_status(ride_id, statuses.CANCELLED)
         message = await self._store.append_event(
-            ride_id, "ride.cancelled", {"by": by, "at": now_ms()}, ride_over=True
+            ride_id,
+            "ride.status",
+            {
+                "status": statuses.CANCELLED,
+                "prev": previous if previous != statuses.CANCELLED else None,
+                "at": now_ms(),
+                "stop": None,
+                "cancelled_by": by,
+            },
+            ride_over=True,
         )
+        seq = int(message["seq"])
         await self._ride_over(ride_id)
-        recipients = [*info.rider_user_ids, *([info.driver_user_id] if info.driver_user_id else [])]
-        for user_id in recipients:
+
+        recipients: list[tuple[int, str, bool]] = []  # (user, body, is_rider)
+        if by != "rider":
+            body = _CANCEL_COPY["by_driver"] if by == "driver" else _CANCEL_COPY["by_admin"]
+            recipients += [(rider, body, True) for rider in info.rider_user_ids]
+        if by != "driver" and info.driver_user_id:
+            body = _CANCEL_COPY["by_rider"] if by == "rider" else _CANCEL_COPY["by_admin"]
+            recipients.append((info.driver_user_id, body, False))
+        for user_id, body, is_rider in recipients:
             notice = Notice(
                 title="Ride cancelled",
-                body=f"Ride #{ride_id} has been cancelled.",
+                body=body,
                 type="ride_cancelled",
-                data={"seq": message["seq"]},
+                data={"status": statuses.CANCELLED, "cancelled_by": by, "seq": seq},
                 ride_id=ride_id,
-                seq=int(message["seq"]),
+                seq=seq,
                 critical=True,
-                sms_text=_SMS_COPY["cancelled"].format(ride=ride_id)
-                if user_id in info.rider_user_ids
-                else None,
+                sms_text=_SMS_COPY["cancelled"].format(ride=ride_id) if is_rider else None,
                 priority="high",
+                collapse_key=f"ride-{ride_id}-status",
             )
             self._tasks.spawn(self._notifier.notify(user_id, notice), name=f"rt-cancel-{ride_id}")
 
