@@ -11,7 +11,9 @@ import pytest
 import respx
 from fastapi.testclient import TestClient
 
+from app.schemas.chat import BookedOut, BookingPreviewOut
 from app.services.booking.chat import (
+    INTERRUPTED_REPLY,
     ROLE_REPLY,
     SIGN_IN_REPLY,
     UNAVAILABLE_REPLY,
@@ -98,6 +100,21 @@ async def test_only_booking_requests_start_a_booking() -> None:
     assert await harness.say("what does an airport transfer cost?") is None
     assert is_booking_request("Book a ride")
     assert is_booking_request("kal subah 5 baje ORD se MDW gaadi chahiye")
+    for text in (
+        "help me create a booking",
+        "i need to make a booking for mdw to 4217 oak avenue brookfield at 5pm",
+        "i want to book another",
+        "can you make a reservation for me",
+        "help me book",
+    ):
+        assert is_booking_request(text), text
+    for text in (
+        "how do I make a booking?",
+        "did I book a ride yesterday?",
+        "show my new bookings",
+        "how many bookings did I make this month",
+    ):
+        assert not is_booking_request(text), text
     assert harness.api.calls == []
 
 
@@ -112,7 +129,11 @@ async def test_rider_books_from_the_chat_with_photo_cards() -> None:
 
     await harness.say("One way")
     await harness.say("2")
-    categories = await harness.say("1")
+    stops = await harness.say("1")
+    assert stops is not None
+    assert "Any extra stops on the way?" in stops.content
+    assert stops.replies == ("No", "Cancel")
+    categories = await harness.say("No")
     assert categories is not None
     assert categories.cards_kind == "category"
     names = [card["title"] for card in categories.cards]
@@ -152,15 +173,36 @@ async def test_rider_books_from_the_chat_with_photo_cards() -> None:
     assert "Booking on your account" in airline.content
     confirm = await harness.answer_details(airline)
     assert confirm is not None
-    assert "Booking summary" in confirm.content
+    assert "Booking summary" not in confirm.content  # the preview card replaces the text summary
     assert confirm.content.rstrip().endswith("Confirm booking? (yes/no)")
     assert confirm.replies == ("Yes", "No", "Cancel")
+    preview = confirm.preview
+    assert preview is not None
+    assert preview["service"] == "One way"
+    (leg,) = preview["legs"]
+    assert leg["title"] == "Your trip"
+    assert leg["when"] == "Sat 14 Nov 2026 · 5:00 AM"
+    assert [p["type"] for p in leg["points"]] == ["pickup", "dropoff"]
+    arriving = {"label": "Arriving flight", "value": "AA - American Airlines, United States AA100"}
+    assert arriving in leg["details"]
+    assert preview["vehicle"]["title"] == "2024 Hyundai Tucson"
+    assert preview["vehicle"]["image"] == f"{CDN}/v-501-a.jpg"
+    assert str(preview["total"]).startswith("$")
+    assert all("SKYLIMO" not in row["value"] for row in preview["rows"])  # operator is admin-only
+    BookingPreviewOut.model_validate(preview)  # the shape the API sends
     assert harness.api.named("individual/create-reservation") == []  # nothing before the yes
 
     booked = await harness.say("Yes")
     assert booked is not None
     assert not booked.active
-    assert "Booked. Reservation #12345" in booked.content
+    assert booked.content == "Your ride is booked!"
+    assert booked.preview is None
+    card = booked.booked
+    assert card is not None
+    assert card["reservation_id"] == "12345"
+    assert "order" not in str(card).lower()  # order ids are not shown
+    assert card["legs"][0]["from"].startswith("O'Hare")
+    assert BookedOut.model_validate(card).model_dump()["legs"][0]["from"] == card["legs"][0]["from"]
     assert len(harness.api.named("individual/create-reservation")) == 1
     assert set(harness.tokens) == {"rider-token"}
     assert await harness.say("1") is None  # the booking is over; the chat answers normally again
@@ -168,7 +210,7 @@ async def test_rider_books_from_the_chat_with_photo_cards() -> None:
 
 async def test_no_at_confirm_books_nothing_and_cancel_ends_the_booking() -> None:
     harness = Harness()
-    await harness.say(TRIP + " one way 2 passengers 1 bag")
+    await harness.say(TRIP + " one way 2 passengers 1 bag no stops")
     await harness.say("2")
     await harness.answer_details(await harness.say("1"))
     declined = await harness.say("No")
@@ -211,6 +253,41 @@ async def test_idle_booking_expires() -> None:
     assert await harness.say("One way") is None
 
 
+@pytest.mark.parametrize(
+    "previous",
+    [
+        "What pickup time? (e.g. 5 am, 17:30)",
+        "Drop-off: ORD Terminal 2 (airport)\nWhat date? (e.g. 14 nov, tomorrow)",
+        "Which terminal at O'Hare for the drop-off?\n1. Terminal 1\n2. Terminal 2",
+        "---- Booking summary ----\nTotal $104.76\nConfirm booking? (yes/no)",
+    ],
+)
+async def test_answer_to_a_lost_booking_is_not_sent_to_the_chatbot(previous: str) -> None:
+    harness = Harness()  # no open session: it went idle, or the server restarted
+    reply = await harness.sessions.handle(RIDER, "c1", "rider-token", "5pm", previous)
+    assert reply == BookingReply(INTERRUPTED_REPLY, active=False)
+    assert harness.api.calls == []
+
+
+async def test_chat_after_a_finished_reply_still_chats() -> None:
+    harness = Harness()
+    for previous in ("Booked. Reservation #12345.", "Midway has two terminals. Anything else?"):
+        assert await harness.sessions.handle(RIDER, "c1", "rider-token", "thanks", previous) is None
+
+
+async def test_a_trip_typed_as_the_pickup_answer_is_read_as_a_trip() -> None:
+    harness = Harness()
+    await harness.say("help me create a booking")
+    flow = harness.sessions._sessions[f"{RIDER_ID}:c1"].flow
+    assert flow.pending == "pickup"
+    reply = await harness.say("book a ride from ord to mdw for 14 nov at 5pm")
+    assert reply is not None
+    assert "One way, round trip, or charter" in reply.content
+    out = flow.d.outbound
+    assert (out.pickup.airport_id, out.dropoff.airport_id) == (2, 117)
+    assert (str(out.date), out.time) == ("2026-11-14", "17:00:00")
+
+
 async def test_a_turn_finishes_when_the_client_disconnects() -> None:
     harness = Harness()
     gate = asyncio.Event()
@@ -221,7 +298,7 @@ async def test_a_turn_finishes_when_the_client_disconnects() -> None:
         return await rates(data)
 
     harness.api.booking_rates = slow_rates  # type: ignore[method-assign]
-    await harness.say(TRIP + " one way 2 passengers 1 bag")
+    await harness.say(TRIP + " one way 2 passengers 1 bag no stops")
     await harness.say("2")
     turn = asyncio.ensure_future(harness.say("1"))  # picks the Tucson; pricing waits on the gate
     await asyncio.sleep(0)
@@ -244,7 +321,7 @@ async def test_failure_inside_a_turn_ends_the_booking() -> None:
         raise RuntimeError("bug")
 
     harness.api.master_vehicle_listing = broken  # type: ignore[method-assign]
-    reply = await harness.say(TRIP + " one way 2 passengers 1 bag")
+    reply = await harness.say(TRIP + " one way 2 passengers 1 bag no stops")
     assert reply is not None
     assert not reply.active
     assert "stopped this booking" in reply.content
@@ -272,7 +349,7 @@ def test_chat_endpoint_streams_booking_events(
     response = client.post(
         "/v1/chat",
         headers=auth(token),
-        json=body(("user", TRIP + " one way 2 passengers 1 bag"), stream=True, conversation_id="c9"),
+        json=body(("user", TRIP + " one way 2 passengers 1 bag no stops"), stream=True, conversation_id="c9"),
     )
     events = parse_sse(response.text)
     assert [name for name, _ in events] == ["start", "booking", "delta", "done"]
@@ -323,3 +400,20 @@ def test_sessions_offer_booking_by_role() -> None:
     assert not harness.sessions.offers(Requester(role="driver", display_name=None, user_id=DRIVER_ID))
     assert not harness.sessions.offers(Requester(role="guest", display_name=None, guest_id="g"))
     assert not Harness(maps=False).sessions.offers(RIDER)
+
+
+async def test_numbered_menus_become_buttons() -> None:
+    harness = Harness()
+    reply = await harness.say("book a ride from chicago airport")
+    assert reply is not None
+    assert [o["label"] for o in reply.options] == [
+        "ORD - Chicago Ohare Intl",
+        "MDW - Chicago Midway Intl",
+    ]
+    assert "1. ORD" not in reply.content  # the buttons replace the numbered lines
+    again = await harness.say("9")  # out of range: the same buttons come back with the hint
+    assert again is not None
+    assert again.options == reply.options
+    picked = await harness.say("2")
+    assert picked is not None
+    assert picked.options == ()

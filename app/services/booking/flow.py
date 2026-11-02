@@ -23,7 +23,7 @@ from typing import Any
 from app.services.booking.api import ROLE_PATHS, ApiError, ApiUnreachableError, LimoApi
 from app.services.booking.card_form import CardResult, collect_card
 from app.services.booking.draft import BookingDraft, Customer, Leg, Passenger, Place
-from app.services.booking.maps import GoogleMaps, MapsError, PlaceDetails
+from app.services.booking.maps import GoogleMaps, MapsError, NoRouteError, PlaceDetails, Suggestion
 from app.services.booking.parse import (
     ParsedTrip,
     TimeOfDay,
@@ -52,14 +52,18 @@ from app.services.booking.rates import (
     return_rate_array,
     return_rates,
 )
-from app.services.booking.reference import Airport, AirportIndex
+from app.services.booking.reference import FBO_AIRPORT_ID, Airport, AirportIndex
+from app.services.booking.understand import TripReader
 
 Say = Callable[[str], None]
 ShowCards = Callable[[str, list[dict[str, Any]]], None]  # menu kind, one card per numbered option
+ShowCard = Callable[[dict[str, Any]], None]  # one designed card (the booking preview, the booked ride)
 CardCollector = Callable[..., Awaitable[CardResult]]
 AccountLookup = Callable[[int], Awaitable[int | None]]  # reservation id -> tbl_reservations.acc_id
 
 _MENU_LIMIT = 10
+# A menu pick as people type it: "1", "1.", "1)", "#1", "no. 1", "option 1".
+_MENU_PICK = re.compile(r"^(?:#|no\.?|number|option|choice)?\s*(\d{1,3})\s*[.)]?$", re.I)
 _EMAIL = re.compile(r"^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
 _ISD_COUNTRIES = {
     "+1": "us", "+44": "gb", "+91": "in", "+61": "au", "+971": "ae", "+65": "sg", "+49": "de", "+33": "fr",
@@ -74,6 +78,23 @@ _CHANGE_PART = re.compile(r"^(?:the\s+)?(?P<field>.+?)\s+(?:to|as|=)\s+(?P<value
 _ADD_STOP = re.compile(r"^add\s+(?:a\s+)?(?P<ret>return\s+)?stop\s+(?:at\s+)?(?P<value>.+)$", re.I)
 _AIRPORT_WORDS = re.compile(r"\b(?:international\s+)?(?:airport|airpot|aiport|intl)\b|\bka\s+airport\b", re.I)
 _CODE = re.compile(r"^\s*([A-Za-z]{3})(?:\s+(?:airport|intl))?\s*$")
+_TERMINAL_LABEL = re.compile(r"\b(?:Terminal|Concourse)\s*[A-Za-z0-9]+\b", re.I)
+_TERMINAL_TYPED = re.compile(r"^\s*(?:terminal|term|t|concourse)\s*([A-Za-z0-9]+)\s*$", re.I)
+_TERMINAL_LIMIT = 8
+# "MDW terminal", "ord terminal 3", "JFK airport T4", "ATL concourse B"
+_CODE_TERMINAL = re.compile(
+    r"^\s*([A-Za-z]{3})(?:\s+(?:airport|intl))?\s+"
+    r"(?:(?:terminal|term|concourse)\s*([A-Za-z0-9]{1,3})?|t\s*(\d{1,2}[A-Za-z]?))\s*$",
+    re.I,
+)
+_TERMINAL_NAME = re.compile(r"\b(?:terminal|concourse)\b", re.I)
+_TERMINAL_KM = 6.0  # a terminal Google doesn't type as "airport" still belongs to an airport this close
+_NOT_TERMINAL_TYPES = frozenset({"bus_station", "train_station", "ferry_terminal", "parking", "lodging"})
+_ENDPOINTS = ("pickup", "dropoff", "return_pickup", "return_dropoff")
+# Questions about the trip itself: a whole trip typed as the answer is read as a trip.
+_TRIP_KEYS = ("pickup", "dropoff", "date", "time", "service", "hours", "pax", "luggage")
+_SAME = ("same", "same as outbound", "same as before", "same as above")  # return notes = outbound notes
+INVALID_POINT = "Please select a valid location point."
 
 
 @dataclass
@@ -100,7 +121,10 @@ class BookingFlow:
     collect_card: CardCollector = collect_card
     account_for_reservation: AccountLookup | None = None
     show_cards: ShowCards | None = None  # the web chat renders category / vehicle menus as photo cards
+    show_preview: ShowCard | None = None  # ... the summary before "Confirm booking?" as a preview card
+    show_booked: ShowCard | None = None  # ... and the created booking as a success card
     card_form: bool = True  # False where no local browser form can be opened (the web chat)
+    reader: TripReader | None = None  # the model reads what the rules miss in a typed trip
 
     d: BookingDraft = field(default_factory=BookingDraft)
     pending: str | None = None
@@ -123,6 +147,9 @@ class BookingFlow:
     _awaiting_confirm: bool = False
     _booked: dict[str, Any] | None = None
     _stalled: bool = False
+    _terminal_done: set[str] = field(default_factory=set)  # airport endpoints already offered terminals
+    _reachable: set[tuple[float, ...]] = field(default_factory=set)  # pickup/drop-off pairs with a route
+    _last_place: str | None = None  # the endpoint set last: the one to ask again when a pair is invalid
 
     @property
     def paths(self):  # noqa: ANN201
@@ -137,8 +164,14 @@ class BookingFlow:
     async def start(self, text: str = "") -> None:
         self.say("Booking a ride. Say 'cancel' at any time to stop; nothing is booked until you confirm.")
         if text.strip():
-            await self._merge(parse_trip(text, self._today()))
+            await self._merge(await self._read_trip(text))
         await self._advance()
+
+    async def _read_trip(self, text: str) -> ParsedTrip:
+        parsed = parse_trip(text, self._today())
+        if self.reader is not None:
+            parsed = await self.reader.improve(text, parsed, self._today())
+        return parsed
 
     async def handle(self, line: str) -> None:
         text = line.strip()
@@ -147,16 +180,21 @@ class BookingFlow:
         self._stalled = False
         if await self._command(text):
             pass
-        elif self.menu is not None and text.isdigit():
-            await self._pick(int(text))
+        elif self.menu is not None and (pick := _MENU_PICK.match(text)) is not None:
+            await self._pick(int(pick.group(1)))
+        elif self.pending in _TRIP_KEYS and self._says_trip(self.pending, text):
+            self.pending = None
+            await self._merge(await self._read_trip(text))
         elif self.pending is not None:
             await self._answer(self.pending, text)
+        elif self.menu is not None and self.menu.kind.startswith("terminal:"):
+            await self._typed_terminal(text)
         elif self.menu is not None and self.menu.kind.startswith("place:"):
             slot = self.menu.kind.split(":", 1)[1]
             self.menu = None
             self._place_queue.insert(0, (slot, text))
         else:
-            parsed = parse_trip(text, self._today())
+            parsed = await self._read_trip(text)
             if not await self._merge(parsed):
                 options = f"1-{len(self.menu.options)}" if self.menu else "an answer"
                 self.say(
@@ -170,6 +208,16 @@ class BookingFlow:
             and (self.menu is None or self._place_queue)
         ):
             await self._advance()
+
+    def _says_trip(self, key: str, text: str) -> bool:
+        """The answer is a trip, not just the value asked for ("book a ride from MDW to ORD on
+        12 dec at 5pm" to "Where is the pickup?"), so it must not be searched as one place."""
+        parsed = parse_trip(text, self._today())
+        places = [p for p in (parsed.pickup, parsed.dropoff) if p]
+        if key in ("pickup", "dropoff"):
+            when = parsed.date is not None or parsed.time is not None
+            return len(places) == 2 or (bool(places) and when)
+        return bool(places)
 
     def _stall(self) -> None:
         """Something failed and was explained; wait for the user instead of calling the API again."""
@@ -225,6 +273,9 @@ class BookingFlow:
             d.customer = d.passenger = None
             self._loose, self._picked_agent = {}, None
             trip = False
+        elif says(r"return (?:notes?|instructions?)"):
+            d.return_instructions = value
+            trip = False
         elif says(r"notes?|instructions?"):
             d.instructions = value
             trip = False
@@ -265,10 +316,12 @@ class BookingFlow:
         elif says(r"return (?:pickup )?time"):
             if not self._set_time(d.ret, value):
                 return
-        elif says(r"return stops?"):
-            d.ret.stops = []
-        elif says(r"stops?"):
-            d.outbound.stops = []
+        elif says(r"(?:return )?stops?"):
+            ret = says(r"return stops?")
+            leg = d.ret if ret else d.outbound
+            leg.stops, leg.stops_answered = [], True
+            if value.lower().strip(" .!") not in ("none", "no", "nothing", "0", "no stops"):
+                self._place_queue.append(("return_stop" if ret else "stop", value))
         elif says(r"(?:pickup )?(?:date|day)"):
             found = parse_date(value, today)
             if found is None:
@@ -381,10 +434,13 @@ class BookingFlow:
                 return
             d.outbound.date, word = found
             self._note_relative(word, found[0])
+            self._take_extras(d.outbound, text)
         elif key in ("time", "return_time"):
             leg = d.outbound if key == "time" else d.ret
             if not self._set_time(leg, text):
                 self.pending = key
+            else:
+                self._take_extras(leg, text)
         elif key in ("ampm", "return_ampm"):
             leg = d.outbound if key == "ampm" else d.ret
             choice = text.lower().strip(". ")
@@ -417,6 +473,7 @@ class BookingFlow:
                 self._repeat(key, "  Please answer 1 (one way), 2 (round trip) or 3 (charter).")
                 return
             self._set_service(*service)
+            self._take_extras(d.outbound, text)
         elif key == "hours":
             count = parse_count(text)
             if count is None or count < 2:
@@ -429,6 +486,7 @@ class BookingFlow:
                 self._repeat(key, "  I couldn't read that date.")
                 return
             d.ret.date = found[0]
+            self._take_extras(d.ret, text)
         elif key == "return_route":
             answer = parse_yes_no(text)
             if answer is True:
@@ -475,12 +533,14 @@ class BookingFlow:
                 self._repeat(key, "  Pick a number from the list, or 'ok' for the default.")
         elif key in ("stops", "return_stops"):
             leg = d.outbound if key == "stops" else d.ret
-            if parse_yes_no(text) is False or text.lower().strip() in (
+            if parse_yes_no(text) is False or text.lower().strip(" .!") in (
                 "none",
                 "no stops",
+                "no extra stops",
                 "0",
                 "nahi",
                 "done",
+                "skip",
             ):
                 leg.stops_answered = True
             elif parse_yes_no(text) is True:
@@ -533,6 +593,28 @@ class BookingFlow:
             self.pending = "ampm" if leg is self.d.outbound else "return_ampm"
             self.say(f"  {found.hour}:{found.minute:02d} in the morning or evening? (am/pm)")
         return True
+
+    def _take_extras(self, leg: Leg, text: str) -> None:
+        """An answer that says more than was asked ("14 nov at 5pm" to "What date?"): keep the
+        rest where it fills something still empty, so it is not asked again."""
+        d, parsed = self.d, parse_trip(text, self._today())
+        if parsed.date is not None and leg.date is None:
+            leg.date = parsed.date
+            if leg is d.outbound:
+                self._note_relative(parsed.relative_date, parsed.date)
+        if parsed.time is not None and leg.time is None and not parsed.time.minute % 15:
+            leg.time = parsed.time.value()
+            if parsed.time.ambiguous:
+                self.pending = "ampm" if leg is d.outbound else "return_ampm"
+                self.say(f"  {parsed.time.hour}:{parsed.time.minute:02d} in the morning or evening? (am/pm)")
+        if leg is not d.outbound:
+            return
+        if parsed.service_type is not None and d.service_type is None:
+            self._set_service(parsed.service_type, parsed.hours)
+        if parsed.pax is not None and d.pax is None:
+            d.pax = parsed.pax
+        if parsed.luggage is not None and d.luggage is None:
+            d.luggage = parsed.luggage
 
     def _set_service(self, service: str, hours: int | None) -> None:
         d = self.d
@@ -606,6 +688,10 @@ class BookingFlow:
                 return None
         if self.pending is not None or self.menu is not None:
             return None
+        if not await self._check_reachable():
+            return None
+        if await self._offer_terminal():
+            return None
         out = d.outbound
         if out.pickup is None:
             return self._ask(
@@ -650,9 +736,16 @@ class BookingFlow:
             return self._ask("pax", "How many passengers?")
         if d.luggage is None:
             return self._ask("luggage", "How many bags?")
-        # extra stops are optional, so they are not asked: 'add stop <address>' adds one
         if not self._check_trip():
             return None
+        # each added stop comes back through here, so _check_trip sees it (distinct points, > 2 = charter)
+        if not out.stops_answered:
+            where = "outbound trip" if d.is_round_trip else "way"
+            return self._ask("stops", f"Any extra stops on the {where}? (type the address, or 'no')")
+        if d.is_round_trip and not d.ret.stops_answered:
+            return self._ask(
+                "return_stops", "Any extra stops on the return trip? (type the address, or 'no')"
+            )
         if not await self._routes():
             return self._stall()
         if d.category is None:
@@ -738,6 +831,13 @@ class BookingFlow:
         code = _CODE.match(text)
         if code and not cruise and (airport := self.airports.by_code(code.group(1))):
             return self._set_place(slot, await self._airport_place(airport))
+        typed = _CODE_TERMINAL.match(text)
+        if typed and not cruise and (airport := self.airports.by_code(typed.group(1))):
+            place = await self._airport_place(airport)
+            number = typed.group(2) or typed.group(3)
+            if number and slot in _ENDPOINTS and (terminal := await self._terminal_place(place, number)):
+                place = terminal
+            return self._set_place(slot, place)  # no number: the terminal menu follows
         city = _AIRPORT_WORDS.sub(" ", text).strip(" ,")
         if _AIRPORT_WORDS.search(text) and city and not cruise:
             matches = self.airports.in_city(city)
@@ -764,7 +864,7 @@ class BookingFlow:
             self.say(f"  Which '{text}' for the {_slot_name(slot)}?")
             for number, suggestion in enumerate(suggestions[:5], start=1):
                 self.say(f"  {number}. {suggestion.text}")
-            self.say("  (pick a number, or type a more exact place)")
+            self.say("  (pick one, or type a more exact place)")
             return False
         return await self._set_google_place(slot, suggestions[0].place_id, cruise)
 
@@ -787,6 +887,20 @@ class BookingFlow:
                 airport_id=nearest.id if nearest else "",
                 airport_label=details.airport_label,
                 country_names=details.country_names,
+                country=details.country,
+                town=details.town,
+            )
+        if not cruise and (airport := self._terminal_airport(details)) is not None:
+            return Place(
+                kind="airport",
+                address=details.airport_label,
+                lat=details.lat,
+                lng=details.lng,
+                airport_id=airport.id,
+                airport_label=details.airport_label,
+                country_names=details.country_names or (airport.country,),
+                country=details.country or airport.country,
+                town=details.town or airport.city,
             )
         return Place(
             kind="cruise" if cruise else "city",
@@ -794,7 +908,29 @@ class BookingFlow:
             lat=details.lat,
             lng=details.lng,
             country_names=details.country_names,
+            country=details.country,
+            town=details.town,
         )
+
+    def _terminal_airport(self, details: PlaceDetails) -> Airport | None:
+        """The airport an airport terminal belongs to. Google often types a terminal as a plain
+        establishment, which would otherwise make "O'Hare Terminal 3" a city address."""
+        if not _TERMINAL_NAME.search(details.name) or _NOT_TERMINAL_TYPES.intersection(details.types):
+            return None
+        if re.search(r"\b(?:parking|garage|lot|bus|train|ferry|cruise)\b", details.name, re.I):
+            return None
+        return self.airports.within(details.lat, details.lng, _TERMINAL_KM)
+
+    async def _terminal_place(self, airport: Place, number: str) -> Place | None:
+        """The airport's terminal or concourse ``number`` ("3", "B"), when Google knows it."""
+        wanted = re.compile(rf"\b(?:terminal|concourse)\s*{re.escape(number)}\b", re.I)
+        for suggestion in await self._terminals(airport):
+            if wanted.search(suggestion.text):
+                try:
+                    return _terminal_of(airport, await self.maps.details(suggestion.place_id))
+                except MapsError:
+                    return None
+        return None
 
     async def _airport_place(self, airport: Airport) -> Place:
         """An airport picked by code or city: Google's place for it when Google agrees on the internal
@@ -815,6 +951,8 @@ class BookingFlow:
             airport_id=airport.id,
             airport_label=airport.label,
             country_names=(airport.country,),
+            country=airport.country,
+            town=airport.city,
         )
 
     def _set_place(self, slot: str, place: Place) -> bool:
@@ -829,10 +967,28 @@ class BookingFlow:
             self.pending = "return_stops"
         else:
             leg = d.ret if slot.startswith("return_") else d.outbound
+            other = leg.dropoff if slot.endswith("pickup") else leg.pickup
+            if other is not None and _other_country(place, other):
+                other_slot = ("return_" if leg is d.ret else "") + (
+                    "dropoff" if slot.endswith("pickup") else "pickup"
+                )
+                self.say(
+                    f"  {place.short} is in {place.country}, but the {_slot_name(other_slot)} "
+                    f"({other.short}) is in {other.country}. A ride can't go from one country to another. "
+                    f"{INVALID_POINT}"
+                )
+                self._ask(
+                    slot,
+                    f"Where is the {_slot_name(slot)}? (in {other.country}, or "
+                    f"'change {_slot_name(other_slot)} to ...')",
+                )
+                return False
             if slot.endswith("pickup"):
                 leg.pickup = place
             else:
                 leg.dropoff = place
+            self._terminal_done.discard(slot)
+            self._last_place = slot
             kind = {"airport": "airport", "cruise": "cruise port", "city": "address"}[place.kind]
             self.say(f"  {_slot_name(slot).capitalize()}: {place.short} ({kind})")
         self._invalidate_trip()
@@ -844,6 +1000,131 @@ class BookingFlow:
         else:
             self._ask(slot, f"Where is the {_slot_name(slot)}?")
         return False
+
+    # --- checks once both ends are known (booking.ts _MapController, checkAndShowTerminalPopup) ---
+
+    async def _check_reachable(self) -> bool:
+        """A driving route must exist between pickup and drop-off (New Delhi -> ORD has none). Checked
+        as soon as both are known, so the user is not asked the date, passengers and bags first.
+        False when the place is being asked again."""
+        d = self.d
+        for leg, prefix in ((d.outbound, ""), (d.ret, "return_")):
+            if leg is d.ret and not d.is_round_trip:
+                continue
+            if leg.route is not None or leg.pickup is None or leg.dropoff is None:
+                continue  # a leg with a route (a saved booking's) is reachable
+            if leg.pickup.same_spot(leg.dropoff):
+                continue
+            key = tuple(
+                round(v, 5) for v in (leg.pickup.lat, leg.pickup.lng, leg.dropoff.lat, leg.dropoff.lng)
+            )
+            if key in self._reachable:
+                continue
+            try:
+                route = await self.maps.route(
+                    [(leg.pickup.lat, leg.pickup.lng), (leg.dropoff.lat, leg.dropoff.lng)]
+                )
+            except NoRouteError:
+                ends = (f"{prefix}pickup", f"{prefix}dropoff")
+                slot = self._last_place if self._last_place in ends else ends[1]
+                self.say(
+                    f"  There is no driving route from {leg.pickup.short} to {leg.dropoff.short}. "
+                    + INVALID_POINT
+                )
+                if slot.endswith("pickup"):
+                    leg.pickup = None
+                else:
+                    leg.dropoff = None
+                self._invalidate_trip()
+                self._ask(slot, f"Where is the {_slot_name(slot)}?")
+                return False
+            except MapsError:
+                continue  # Google is unreachable; the route step reports it later
+            self._reachable.add(key)
+            if not leg.stops and route.meters > 0:
+                leg.route = route
+        return True
+
+    async def _offer_terminal(self) -> bool:
+        """Offer the terminals of an airport pickup or drop-off, like the web app's "select a
+        terminal" popup. True when the menu is open."""
+        d = self.d
+        for slot in _ENDPOINTS:
+            if slot.startswith("return_") and not d.is_round_trip:
+                continue
+            leg = d.ret if slot.startswith("return_") else d.outbound
+            place = leg.pickup if slot.endswith("pickup") else leg.dropoff
+            if place is None or place.kind != "airport" or slot in self._terminal_done:
+                continue
+            self._terminal_done.add(slot)
+            if "terminal" in place.short.lower() or str(place.airport_id) == str(FBO_AIRPORT_ID):
+                continue
+            terminals = await self._terminals(place)
+            if not terminals:
+                continue  # an airport without terminals to pick between is not interrupted
+            labels = _terminal_labels(terminals)
+            self.menu = Menu(f"terminal:{slot}", [("airport", place), *(("terminal", t) for t in terminals)])
+            self.say(f"  Which terminal at {_airport_name(place)} for the {_slot_name(slot)}?")
+            self.say(f"  1. {_airport_name(place)} (terminal not known)")
+            for number, label in enumerate(labels, start=2):
+                self.say(f"  {number}. {label}")
+            return True
+        return False
+
+    async def _terminals(self, place: Place) -> list[Suggestion]:
+        """booking.ts fetchTerminalOptionsRaw: "<airport> terminal" / "concourse" within 20 km of
+        the airport, keeping only real places whose name says "terminal"."""
+        airport = self.airports.by_id(place.airport_id)
+        base = airport.code if airport is not None and airport.code else _airport_name(place)
+        found: list[Suggestion] = []
+        try:
+            for query in (f"{base} terminal", f"{base} concourse"):
+                found += await self.maps.autocomplete(query, near=(place.lat, place.lng))
+        except MapsError:
+            return []
+        terminals, seen = [], set()
+        for suggestion in found:
+            types = suggestion.types
+            text = suggestion.text.lower()
+            if "terminal" not in text or "route" in types or types == ("geocode",):
+                continue
+            if re.search(r"\b(?:parking|garage|lot)\b", text):
+                continue  # where the car parks, not where it picks up
+            if suggestion.place_id in seen:
+                continue
+            seen.add(suggestion.place_id)
+            terminals.append(suggestion)
+        terminals.sort(key=lambda t: _natural(_terminal_labels([t])[0]))
+        return terminals[:_TERMINAL_LIMIT]
+
+    async def _choose_terminal(self, slot: str, choice: tuple[str, Any]) -> None:
+        kind, picked = choice
+        if kind == "airport":
+            self.say(f"  {_slot_name(slot).capitalize()}: {picked.short} (terminal not known)")
+            return
+        leg = self.d.ret if slot.startswith("return_") else self.d.outbound
+        airport = leg.pickup if slot.endswith("pickup") else leg.dropoff
+        try:
+            details = await self.maps.details(picked.place_id)
+        except MapsError as exc:
+            self.say(f"  Couldn't load that terminal ({exc}); keeping the airport.")
+            return
+        self._set_place(slot, _terminal_of(airport, details))
+        self._terminal_done.add(slot)
+
+    async def _typed_terminal(self, text: str) -> None:
+        """Typed "terminal 5" / "t5" instead of tapping a terminal."""
+        menu = self.menu
+        if menu is None:
+            return
+        wanted = _TERMINAL_TYPED.match(text)
+        if wanted is not None:
+            for number, (kind, option) in enumerate(menu.options, start=1):
+                label = option.text if kind == "terminal" else ""
+                if re.search(rf"\b(?:terminal|concourse)\s*{re.escape(wanted.group(1))}\b", label, re.I):
+                    await self._pick(number)
+                    return
+        self.say(f"  Pick a terminal from the list (1-{len(menu.options)}), or 1 if you don't know it.")
 
     # --- routes, categories, vehicles, rates -------------------------------------
 
@@ -1097,6 +1378,8 @@ class BookingFlow:
                 self._set_place(slot, await self._airport_place(choice[1]))
             else:
                 await self._set_google_place(slot, choice[1].place_id, choice[2])
+        elif menu.kind.startswith("terminal:"):
+            await self._choose_terminal(menu.kind.split(":", 1)[1], choice)
         elif menu.kind == "category":
             await self._choose_category(choice)
         elif menu.kind == "vehicle":
@@ -1373,12 +1656,22 @@ class BookingFlow:
             # the web form has meet_greet_choices for every pickup kind, not only airports
             if f"meet:{index}" not in self._meet_greet_done:
                 return await self._ask_meet_greet(index)
-        if not self.d.instructions and "0:instructions" not in self._detail_skips:
-            # booking_instructions: the form pre-fills a default per pickup kind and lets the user add to it
-            pickup = self.d.outbound.pickup
-            default = default_instructions(pickup.kind if pickup else "city")
-            self.say(f"  Driver instructions (default): {_plain(default)}")
-            self._ask("detail:0:instructions", "Any special instructions to add? (optional: 'skip')")
+        # booking_instructions / return_booking_instructions: the form pre-fills a default per leg's
+        # pickup kind and lets the user add to each leg's own text
+        d = self.d
+        for index, leg in enumerate(d.legs):
+            note = d.return_instructions if index else d.instructions
+            if note or f"{index}:instructions" in self._detail_skips:
+                continue
+            default = default_instructions(leg.pickup.kind if leg.pickup else "city")
+            trip = ("return trip " if index else "outbound trip ") if d.is_round_trip else ""
+            label = f"{trip.capitalize()}driver instructions" if trip else "Driver instructions"
+            self.say(f"  {label} (default): {_plain(default)}")
+            same = " or 'same' as the outbound" if index and d.instructions else ""
+            self._ask(
+                f"detail:{index}:instructions",
+                f"Any special instructions to add for the {trip or 'trip '}driver? (optional: 'skip'{same})",
+            )
             return False
         return True
 
@@ -1399,7 +1692,12 @@ class BookingFlow:
         elif name == "cruise_name":
             leg.cruise.name = value
         elif name == "instructions":
-            self.d.instructions = "" if skip else value
+            if index_text == "0":
+                self.d.instructions = "" if skip else value
+            elif value.lower().strip(" .!") in _SAME:
+                self.d.return_instructions = self.d.instructions
+            else:
+                self.d.return_instructions = "" if skip else value
             self._detail_skips.add(f"{index_text}:instructions")
         elif name == "cruise_time":
             if not skip:
@@ -1455,7 +1753,9 @@ class BookingFlow:
             if leg.meet_greet
             else (MEET_GREET_CITY if city_pickup else MEET_GREET_AIRPORT)[0]
         )
-        self.say("  Meet & greet (arrival instructions):")
+        trip = ("Return trip " if index else "Outbound trip ") if self.d.is_round_trip else ""
+        greet = "meet & greet" if trip else "Meet & greet"
+        self.say(f"  {trip}{greet} (arrival instructions):")
         for number, choice in enumerate(choices, start=1):
             mark = " (default)" if choice.get("id") == default else ""
             self.say(f"  {number}. {choice.get('message')}{mark}")
@@ -1469,6 +1769,10 @@ class BookingFlow:
         d = self.d
         if d.outbound.pickup is None:
             self.say("  Nothing collected yet.")
+            return
+        if final and self.show_preview is not None:
+            self.say("  Here's your booking. Please check the details before you confirm.")
+            self.show_preview(self._preview())
             return
         sym = d.currency_symbol
         self.say("  ---- Booking summary ----")
@@ -1539,6 +1843,8 @@ class BookingFlow:
             self.say(f"  Passenger:  {p.name}" + (f" ({contact})" if contact else ""))
         if d.instructions:
             self.say(f"  Notes:      {d.instructions}")
+        if d.is_round_trip and d.return_instructions:
+            self.say(f"  Return notes: {d.return_instructions}")
         if d.rates:
             self._print_rates("Price", d.rates, sym)
             if d.return_rates:
@@ -1551,27 +1857,158 @@ class BookingFlow:
                 if abs(_float(listed) - saved) >= 0.01:
                     self.say(
                         f"  (The vehicle list showed {_money(sym, listed)}; the booking saves the price "
-                        "above, calculated the way the web app does.)"
+                        "above)"
                     )
         if (note := self._payment_note()) is not None:
             self.say(f"  Payment:    {note}")
-        if final and not self.is_admin and d.outbound.date and d.outbound.time:
-            at = datetime.combine(
-                d.outbound.date, datetime.strptime(d.outbound.time, "%H:%M:%S").time(), self.now().tzinfo
+        if final and self._within_a_day():
+            self.say("  Note:       this pickup is within 24 hours.")
+
+    def _within_a_day(self) -> bool:
+        d = self.d
+        if self.is_admin or d.outbound.date is None or d.outbound.time is None:
+            return False
+        at = datetime.combine(
+            d.outbound.date, datetime.strptime(d.outbound.time, "%H:%M:%S").time(), self.now().tzinfo
+        )
+        return at - self.now() <= timedelta(hours=24)
+
+    def _preview(self) -> dict[str, Any]:
+        """The final summary as the web chat's preview card: the same facts as the text summary."""
+        d, sym = self.d, self.d.currency_symbol
+        service = _SERVICE_NAMES.get(d.service_type or "", "-").capitalize()
+        if d.is_charter:
+            service += f" · {d.hours} hours"
+        legs = []
+        for index, leg in enumerate(d.legs):
+            points = [{"type": "pickup", "label": leg.pickup.short if leg.pickup else "-"}]
+            points += [{"type": "stop", "label": stop.short} for stop in leg.stops]
+            points.append({"type": "dropoff", "label": leg.dropoff.short if leg.dropoff else "-"})
+            details = []
+            if leg.pickup and leg.pickup.kind == "airport" and leg.pickup_flight.airline:
+                flight = leg.pickup_flight
+                details.append(_row("Arriving flight", f"{airline_label(flight.airline)} {flight.number}"))
+                if flight.city:
+                    details.append(_row("Flying in from", flight.city))
+            if leg.dropoff and leg.dropoff.kind == "airport" and leg.dropoff_flight.airline:
+                flight = leg.dropoff_flight
+                number = flight.number or "no flight number"
+                details.append(_row("Departing flight", f"{airline_label(flight.airline)} {number}"))
+            if leg.cruise.port:
+                details.append(_row("Cruise", f"{leg.cruise.name} at {leg.cruise.port} ({leg.cruise.time})"))
+            if leg.meet_greet:
+                details.append(_row("Meet & greet", str(leg.meet_greet.get("message") or "")))
+            note = d.return_instructions if index else d.instructions
+            if note:
+                details.append(_row("Special instructions", note))
+            distance = None
+            if leg.route:
+                miles, minutes = leg.route.meters / 1609.344, round(leg.route.seconds / 60)
+                distance = f"{miles:.1f} mi · about {minutes} min"
+            legs.append({
+                "title": ("Return trip" if index else "Outbound trip") if d.is_round_trip else "Your trip",
+                "when": f"{_day(leg.date)} · {_clock(leg.time)}" if leg.date and leg.time else "-",
+                "points": points, "distance": distance, "details": details,
+            })  # fmt: skip
+
+        vehicle = None
+        rows = [_row("Passengers", f"{d.pax or 0} passenger(s) · {d.luggage or 0} bag(s)")]
+        if d.vehicle:
+            v = d.vehicle
+            specs = v.get("vehicle_details") or {}
+            title = " ".join(str(x) for x in (specs.get("year"), specs.get("make"), specs.get("model")) if x)
+            category = str((d.category or {}).get("name") or v.get("name") or "")
+            images = _images(None, v.get("vehicle_images")) or _images(
+                (d.category or {}).get("cat_img"), (d.category or {}).get("vehicle_images")
             )
-            if at - self.now() <= timedelta(hours=24):
-                self.say("  Note:       this pickup is within 24 hours.")
+            vehicle = {
+                "title": title or category, "subtitle": category if title and category != title else None,
+                "size": f"Up to {v.get('passenger')} passengers · {v.get('luggage')} bags"
+                if v.get("passenger") else None,
+                "image": images[0] if images else None,
+            }  # fmt: skip
+            if self.is_admin and not d.is_master_vehicle:
+                operator = v.get("affiliate_company") or v.get("affiliate_name")
+                if operator:
+                    phone = v.get("affiliate_phone")
+                    rows.append(_row("Operator", f"{operator}" + (f" ({phone})" if phone else "")))
+            driver = v.get("driverInformation") or {}
+            if driver.get("name"):
+                value = str(driver.get("name"))
+                if self.is_admin:
+                    contact = " ".join(
+                        str(x)
+                        for x in (driver.get("cell_isd"), driver.get("cell_number"), driver.get("email"))
+                        if x
+                    )
+                    value += f" · {contact}" if contact else ""
+                rows.append(_row("Driver", value))
+        if d.customer:
+            rows.append(_row("Customer", d.customer.label))
+        if d.passenger and d.passenger.name:
+            p = d.passenger
+            contact = " · ".join(x for x in (f"{p.cell_isd} {p.cell}" if p.cell else "", p.email) if x)
+            rows.append(_row("Passenger", p.name + (f" ({contact})" if contact else "")))
+
+        prices, total = [], None
+        if d.rates:
+            prices.append(self._price("Outbound trip" if d.return_rates else "Trip price", d.rates, sym))
+            grand = d.rates.grand_total
+            if d.return_rates:
+                prices.append(self._price("Return trip", d.return_rates, sym))
+                grand += d.return_rates.grand_total
+            total = _money(sym, grand)
+
+        notes = []
+        if d.vehicle and d.vehicle.get("cancellation_policy") not in (None, ""):
+            hours = d.vehicle.get("cancellation_policy")
+            notes.append(f"Free cancellation up to {hours} hours before pickup.")
+        if self._payment_note() is not None:
+            notes.append("Nothing is charged now: the booking is saved unpaid and paid later.")
+        if self._within_a_day():
+            notes.append("This pickup is within 24 hours.")
+        return {
+            "service": service, "legs": legs, "vehicle": vehicle, "rows": rows,
+            "prices": prices, "total": total, "notes": notes,
+        }  # fmt: skip
+
+    def _booked_card(self, data: dict[str, Any]) -> dict[str, Any]:
+        """The created booking for the web chat's success card (reservation numbers, not order ids)."""
+        d = self.d
+        preview = self._preview()
+        legs = [
+            {
+                "title": leg["title"], "when": leg["when"],
+                "from": leg["points"][0]["label"], "to": leg["points"][-1]["label"],
+                "stops": len(leg["points"]) - 2,
+            }
+            for leg in preview["legs"]
+        ]  # fmt: skip
+        vehicle = preview["vehicle"]
+        return_id = data.get("return_reservation_id")
+        return {
+            "reservation_id": str(data.get("reservation_id") or ""),
+            "return_reservation_id": str(return_id) if return_id else None,
+            "service": preview["service"],
+            "legs": legs,
+            "vehicle": vehicle["title"] if vehicle else None,
+            "passenger": d.passenger.name if d.passenger else None,
+            "total": preview["total"],
+            "message": "A confirmation is on its way by email and text.",
+        }
+
+    def _price(self, label: str, rates: Any, sym: str) -> dict[str, Any]:
+        return {
+            "label": label,
+            "amount": _money(sym, rates.grand_total),
+            "lines": [_row(name, amount) for name, amount in _rate_lines(rates, sym)],
+        }
 
     def _payment_note(self) -> str | None:
         return "none now; the booking is saved unpaid and paid later, as in the web app."
 
     def _print_rates(self, title: str, rates: Any, sym: str) -> None:
-        labels = []
-        for group in rates.lines.values():
-            for name, line in group.items():
-                amount = rates.totals.get(name, 0)
-                if amount:
-                    labels.append(f"{line.get('rate_label') or name.replace('_', ' ')} {_money(sym, amount)}")
+        labels = [f"{name} {amount}" for name, amount in _rate_lines(rates, sym)]
         self.say(
             f"  {title}:"
             + (" " * max(1, 11 - len(title)))
@@ -1610,7 +2047,8 @@ class BookingFlow:
                 "  This vehicle has no vehicle type, so the web form would refuse it. Pick another ('back')."
             )
             return
-        self.say("  Booking...")
+        if self.show_booked is None:
+            self.say("  Booking...")
         try:
             answer = await self.api.post(self.paths.create_reservation, payload)
         except ApiUnreachableError as exc:
@@ -1626,15 +2064,15 @@ class BookingFlow:
             return
         data = answer.get("data") or {}
         self._booked = data
-        line = f"  Booked. Reservation #{data.get('reservation_id', '?')}"
-        if data.get("order_id"):
-            line += f" (order {data['order_id']})"
-        if data.get("return_reservation_id"):
-            line += f"; return #{data['return_reservation_id']}"
-            if data.get("return_order_id"):
-                line += f" (order {data['return_order_id']})"
-        self.say(line + ".")
-        self.say("  Confirmation emails and texts go out from the server as usual.")
+        if self.show_booked is not None:
+            self.say("  Your ride is booked!")
+            self.show_booked(self._booked_card(data))
+        else:
+            line = f"  Booked. Reservation #{data.get('reservation_id', '?')}"
+            if data.get("return_reservation_id"):
+                line += f"; return #{data['return_reservation_id']}"
+            self.say(line + ".")
+            self.say("  Confirmation emails and texts go out from the server as usual.")
         customer = d.customer
         if self.is_admin and customer is not None and customer.account_type == "loose_customer":
             if not self.card_form:
@@ -1748,6 +2186,54 @@ def _phone(text: str, default_isd: str = "+1") -> tuple[str, str] | None:
     return None
 
 
+def _other_country(place: Place, other: Place) -> bool:
+    """booking.ts _MapController: pickup and drop-off in different countries is not a ride."""
+    if not place.country or not other.country:
+        return False
+    return place.country.casefold() != other.country.casefold()
+
+
+def _terminal_of(airport: Place | None, details: PlaceDetails) -> Place:
+    """A terminal's own point and label, keeping the airport's internal id for the API."""
+    return Place(
+        kind="airport",
+        address=details.airport_label,
+        lat=details.lat,
+        lng=details.lng,
+        airport_id=airport.airport_id if airport is not None else "",
+        airport_label=details.airport_label,
+        country_names=details.country_names or (airport.country_names if airport else ()),
+        country=details.country or (airport.country if airport else ""),
+        town=details.town or (airport.town if airport else ""),
+    )
+
+
+def _airport_name(place: Place) -> str:
+    """The name in "<name> - <address>" ("Chicago O'Hare International Airport")."""
+    return re.split(r"\s+-\s+", place.short, maxsplit=1)[0].strip() or place.short
+
+
+def _natural(label: str) -> list[Any]:
+    """ "Terminal 2" before "Terminal 10"."""
+    return [int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", label)]
+
+
+def _terminal_labels(terminals: list[Suggestion]) -> list[str]:
+    """booking.ts getModalTerminalOptionLabel: "Terminal 5" instead of the full place text, with a
+    bit of the address added when two options would read the same."""
+    shorts = []
+    for suggestion in terminals:
+        match = _TERMINAL_LABEL.search(suggestion.text)
+        shorts.append(match.group(0) if match else suggestion.text)
+    labels = []
+    for suggestion, short in zip(terminals, shorts, strict=True):
+        if shorts.count(short) > 1 and (match := _TERMINAL_LABEL.search(suggestion.text)):
+            rest = [p.strip() for p in suggestion.text[match.end() :].split(",") if p.strip()]
+            short = f"{short} ({', '.join(rest[:2])})" if rest else short
+        labels.append(short)
+    return labels
+
+
 def _slot_name(slot: str) -> str:
     return {
         "pickup": "pickup", "dropoff": "drop-off", "return_pickup": "return pickup",
@@ -1777,6 +2263,21 @@ def _float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _row(label: str, value: str) -> dict[str, str]:
+    return {"label": label, "value": value}
+
+
+def _rate_lines(rates: Any, sym: str) -> list[tuple[str, str]]:
+    """The non-zero lines of a price: ("Base Rate", "$90.00"), ..."""
+    found = []
+    for group in rates.lines.values():
+        for name, line in group.items():
+            amount = rates.totals.get(name, 0)
+            if amount:
+                found.append((str(line.get("rate_label") or name.replace("_", " ")), _money(sym, amount)))
+    return found
 
 
 def _plain(html_text: str) -> str:

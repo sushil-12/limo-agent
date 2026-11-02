@@ -27,7 +27,7 @@ from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.session import create_engine
 from app.llm.base import LLMMessage
-from app.llm.factory import create_llm_provider, create_ollama_client
+from app.llm.factory import create_llm_client, create_llm_provider
 from app.main import _build_data_agent
 from app.services.data.catalog import SchemaCatalog
 from app.services.data.examples import load_examples
@@ -48,7 +48,7 @@ async def _run(args: argparse.Namespace) -> int:
     settings = get_settings()
     configure_logging("WARNING", json_logs=False)
     engine = create_engine(settings)
-    client = create_ollama_client(settings)
+    client = create_llm_client(settings)
     try:
         if args.check_examples:
             return await _check_examples(engine)

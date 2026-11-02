@@ -83,6 +83,13 @@ class AirportIndex:
                 best, best_km = airport, km
         return best
 
+    def within(self, lat: float, lng: float, km: float) -> Airport | None:
+        """The nearest airport when it is at most ``km`` away, else None."""
+        airport = self.nearest(lat, lng)
+        if airport is None or airport.lat is None or airport.long is None:
+            return None
+        return airport if _haversine_km(lat, lng, airport.lat, airport.long) <= km else None
+
 
 @lru_cache
 def airport_index() -> AirportIndex:

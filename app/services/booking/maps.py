@@ -22,6 +22,10 @@ class MapsError(Exception):
     """Google could not answer; the message is safe to show (it never contains the key)."""
 
 
+class NoRouteError(MapsError):
+    """Google answered, and there is no driving route between the points (another continent)."""
+
+
 @dataclass(frozen=True, slots=True)
 class Suggestion:
     place_id: str
@@ -38,6 +42,8 @@ class PlaceDetails:
     lng: float
     types: tuple[str, ...]
     country_names: tuple[str, ...]  # long names of every address component (currency lookup)
+    country: str = ""  # the country component's long name ("United States", "India")
+    town: str = ""  # the locality component (booking.ts getTown), for a stop's in/out of town rate
 
     @property
     def is_airport(self) -> bool:
@@ -64,10 +70,16 @@ class GoogleMaps:
         self._key = api_key
         self._client = client
 
-    async def autocomplete(self, text: str) -> list[Suggestion]:
-        data = await self._call(
-            "POST", _AUTOCOMPLETE_URL, json={"input": text}, headers={"X-Goog-Api-Key": self._key}
-        )
+    async def autocomplete(
+        self, text: str, *, near: tuple[float, float] | None = None, radius_meters: float = 20000.0
+    ) -> list[Suggestion]:
+        """``near`` restricts (not just biases) the answers to a circle, as the web app's terminal
+        search does, so "SEA terminal" can't match the Isle of Man's "Sea Terminal"."""
+        body: dict[str, object] = {"input": text}
+        if near is not None:
+            center = {"latitude": near[0], "longitude": near[1]}
+            body["locationRestriction"] = {"circle": {"center": center, "radius": radius_meters}}
+        data = await self._call("POST", _AUTOCOMPLETE_URL, json=body, headers={"X-Goog-Api-Key": self._key})
         found = []
         for item in data.get("suggestions") or []:
             prediction = item.get("placePrediction")
@@ -89,6 +101,7 @@ class GoogleMaps:
             headers={"X-Goog-Api-Key": self._key, "X-Goog-FieldMask": _DETAIL_FIELDS},
         )
         location = data.get("location") or {}
+        components = data.get("addressComponents") or ()
         if "latitude" not in location or "longitude" not in location:
             raise MapsError("Google returned that place without a location")
         return PlaceDetails(
@@ -98,7 +111,13 @@ class GoogleMaps:
             lat=float(location["latitude"]),
             lng=float(location["longitude"]),
             types=tuple(data.get("types") or ()),
-            country_names=tuple(c.get("longText", "") for c in data.get("addressComponents") or ()),
+            country_names=tuple(c.get("longText", "") for c in components),
+            country=next(
+                (c.get("longText", "") for c in components if "country" in (c.get("types") or ())), ""
+            ),
+            town=next(
+                (c.get("longText", "") for c in components if "locality" in (c.get("types") or ())), ""
+            ),
         )
 
     async def route(self, points: list[tuple[float, float]]) -> Route:
@@ -114,6 +133,8 @@ class GoogleMaps:
         if len(points) > 2:
             params["waypoints"] = "|".join(_latlng(p) for p in points[1:-1])
         data = await self._call("GET", _DIRECTIONS_URL, params=params)
+        if data.get("status") in ("ZERO_RESULTS", "NOT_FOUND"):
+            raise NoRouteError(f"no driving route found ({data['status']})")
         if data.get("status") != "OK" or not data.get("routes"):
             raise MapsError(f"no driving route found ({data.get('status', 'unknown status')})")
         totals = [

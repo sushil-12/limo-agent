@@ -57,8 +57,11 @@ from app.llm.base import (
     Usage,
 )
 from app.schemas.chat import (
+    BookedOut,
     BookingCardOut,
+    BookingOptionOut,
     BookingOut,
+    BookingPreviewOut,
     CardRequestOut,
     ChatMessageIn,
     ChatRequest,
@@ -301,8 +304,9 @@ class ChatService:
         """The booking's reply when this message starts or continues a booking, else None."""
         if self._booking is None:
             return None
+        previous = next((m.content for m in reversed(request.messages[:-1]) if m.role == "assistant"), None)
         return await self._booking.handle(
-            requester, request.conversation_id, token, request.messages[-1].content
+            requester, request.conversation_id, token, request.messages[-1].content, previous
         )
 
     async def complete(
@@ -756,8 +760,11 @@ def _booking_out(reply: BookingReply) -> BookingOut:
         active=reply.active,
         cards_kind=reply.cards_kind,  # type: ignore[arg-type]  # "category" | "vehicle" | None
         cards=[BookingCardOut.model_validate(card) for card in reply.cards],
+        options=[BookingOptionOut.model_validate(option) for option in reply.options],
         replies=list(reply.replies),
         card_request=CardRequestOut.model_validate(reply.card_request) if reply.card_request else None,
+        preview=BookingPreviewOut.model_validate(reply.preview) if reply.preview else None,
+        booked=BookedOut.model_validate(reply.booked) if reply.booked else None,
     )
 
 

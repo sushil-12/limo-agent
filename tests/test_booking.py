@@ -16,7 +16,7 @@ from app.services.booking.api import ApiError, ApiUnreachableError, LimoApi
 from app.services.booking.card_form import collect_card, validate_card
 from app.services.booking.draft import BookingDraft, Leg, Place
 from app.services.booking.flow import BookingFlow
-from app.services.booking.maps import PlaceDetails, Route, Suggestion
+from app.services.booking.maps import NoRouteError, PlaceDetails, Route, Suggestion
 from app.services.booking.parse import parse_trip
 from app.services.booking.payload import form_value, quote_payload
 from app.services.booking.rates import (
@@ -224,7 +224,9 @@ class FakeApi:
         return [body for call, body in self.calls if call == name]
 
 
-def _place(place_id: str, name: str, address: str, lat: float, lng: float, *, airport: bool) -> PlaceDetails:
+def _place(
+    place_id: str, name: str, address: str, lat: float, lng: float, *, airport: bool, town: str = "Chicago"
+) -> PlaceDetails:
     return PlaceDetails(
         place_id=place_id,
         name=name,
@@ -232,7 +234,9 @@ def _place(place_id: str, name: str, address: str, lat: float, lng: float, *, ai
         lat=lat,
         lng=lng,
         types=("airport",) if airport else ("establishment",),
-        country_names=("Chicago", "United States"),
+        country_names=(town, "United States"),
+        country="United States",
+        town=town,
     )
 
 
@@ -261,21 +265,46 @@ PLACES = {
         -87.6359,
         airport=False,
     ),
+    "navy": _place(
+        "p-navy",
+        "Navy Pier",
+        "600 E Grand Ave, Chicago, IL 60611, USA",
+        41.8917,
+        -87.6086,
+        airport=False,
+    ),
+    "evanston": _place(
+        "p-evanston",
+        "Northwestern University",
+        "633 Clark St, Evanston, IL 60208, USA",
+        42.0565,
+        -87.6753,
+        airport=False,
+        town="Evanston",
+    ),
 }
 
 
 @dataclass
 class FakeMaps:
     route_calls: list[list[tuple[float, float]]] = field(default_factory=list)
+    terminals: list[Suggestion] = field(default_factory=list)  # "<code> terminal" near an airport
+    no_route: bool = False
 
-    async def autocomplete(self, text: str) -> list[Suggestion]:
+    async def autocomplete(self, text: str, *, near: tuple[float, float] | None = None) -> list[Suggestion]:
         lowered = text.lower()
+        if near is not None:
+            return self.terminals if lowered.endswith(" terminal") else []
         if lowered.startswith("ord "):
             return [Suggestion("p-ord", "O'Hare International Airport", ("airport",))]
         if lowered.startswith("mdw "):
             return [Suggestion("p-mdw", "Chicago Midway International Airport", ("airport",))]
         if "wacker" in lowered:
             return [Suggestion("p-wacker", "233 S Wacker Dr, Chicago", ("street_address",))]
+        if "navy pier" in lowered:
+            return [Suggestion("p-navy", "Navy Pier, Chicago", ("establishment",))]
+        if "northwestern" in lowered:
+            return [Suggestion("p-evanston", "Northwestern University, Evanston", ("establishment",))]
         return []
 
     async def details(self, place_id: str) -> PlaceDetails:
@@ -283,6 +312,8 @@ class FakeMaps:
 
     async def route(self, points: list[tuple[float, float]]) -> Route:
         self.route_calls.append(points)
+        if self.no_route:
+            raise NoRouteError("no driving route found (ZERO_RESULTS)")
         return Route(meters=45299, seconds=2290)
 
 
@@ -317,7 +348,7 @@ async def run(flow: BookingFlow, *lines: str) -> list[str | None]:
 async def to_vehicle_menu(mode: str, out: list[str], api: FakeApi | None = None, *, trip: str = "") -> tuple:
     flow, api = make_flow(mode, out, api)
     await flow.start(trip or "5 am pickup on 14 nov from ord to mdw")
-    await run(flow, "1", "2", "1", "2")  # one way, 2 pax, 1 bag, category 2 = Mid-Size SUV
+    await run(flow, "1", "2", "1", "no", "2")  # one way, 2 pax, 1 bag, no stops, category 2 = Mid-Size SUV
     return flow, api
 
 
@@ -327,16 +358,16 @@ async def to_vehicle_menu(mode: str, out: list[str], api: FakeApi | None = None,
 async def test_1_parses_trip_and_asks_only_service_pax_luggage(out: list[str]) -> None:
     flow, api = make_flow("admin", out)
     await flow.start("5 am pickup on 14 nov from ord to mdw")
-    asked = [flow.pending, *await run(flow, "one way", "2", "1")]
+    asked = [flow.pending, *await run(flow, "one way", "2", "1", "no")]
 
-    assert asked == ["service", "pax", "luggage", "category"]
+    assert asked == ["service", "pax", "luggage", "stops", "category"]
     leg = flow.d.outbound
     assert (leg.date, leg.time) == (date(2026, 11, 14), "05:00:00")
     assert (leg.pickup.kind, leg.pickup.airport_id) == ("airport", 2)  # ORD's internal id
     assert (leg.dropoff.kind, leg.dropoff.airport_id) == ("airport", 117)  # MDW
     quote = api.named("master")[0]
     assert quote["pickup_type"] == quote["dropoff_type"] == "airport"
-    assert (quote["pickup_date"], quote["pickup_time"]) == ("2026-11-14", "05:00:00")
+    assert (quote["pickup_date"], quote["pickup_time"]) == ("2026-11-14", "5:00 AM")
     assert (quote["pickup_airport"], quote["dropoff_airport"]) == (2, 117)
     assert quote["location_info"] == [
         {"distance": {"text": "45.3 km", "value": 45299}, "duration": {"text": "38 mins", "value": 2290}}
@@ -357,7 +388,7 @@ async def test_2_chicago_airport_asks_which_one(out: list[str]) -> None:
 
 async def test_3_big_group_hides_small_but_lists_empty_categories(out: list[str]) -> None:
     flow, _ = make_flow("admin", out)
-    await flow.start("5 am pickup on 14 nov from ord to mdw, 6 passengers 5 bags one way")
+    await flow.start("5 am pickup on 14 nov from ord to mdw, 6 passengers 5 bags one way, no stops")
 
     assert flow.menu.kind == "category"
     assert [c["name"] for c in flow.menu.options] == ["Full Size SUV XL", "Water Taxi"]
@@ -375,7 +406,7 @@ async def test_3_big_group_hides_small_but_lists_empty_categories(out: list[str]
 
 async def test_empty_category_is_booked_as_the_master_vehicle(out: list[str]) -> None:
     flow, api = make_flow("admin", out)
-    await flow.start("5 am pickup on 14 nov from ord to mdw, 6 passengers 5 bags one way")
+    await flow.start("5 am pickup on 14 nov from ord to mdw, 6 passengers 5 bags one way, no stops")
     await flow.handle("2")
 
     assert not api.named("vehicles")
@@ -386,7 +417,7 @@ async def test_empty_category_is_booked_as_the_master_vehicle(out: list[str]) ->
 async def test_vehicles_are_listed_cheapest_first(out: list[str]) -> None:
     flow, api = make_flow("admin", out)
     api.vehicles = [SUVS[1], SUVS[0]]
-    await flow.start("5 am pickup on 14 nov from ord to mdw, 2 people, 1 bag one way")
+    await flow.start("5 am pickup on 14 nov from ord to mdw, 2 people, 1 bag one way, no stops")
     await flow.handle("2")
 
     assert [v["id"] for v in flow.menu.options] == [501, 502]
@@ -410,9 +441,10 @@ async def test_4_category_pick_calls_vehicle_listing_with_type_and_user(out: lis
 async def test_5_round_trip_uses_round_trip_totals_and_collects_return(out: list[str]) -> None:
     flow, api = make_flow("admin", out)
     await flow.start("5 am pickup on 14 nov from ord to mdw round trip, 2 people, 1 bag")
-    asked = [flow.pending, *await run(flow, "16 nov", "7 pm", "yes")]
+    asked = [flow.pending, *await run(flow, "16 nov", "7 pm", "yes", "no", "no")]
 
-    assert asked == ["return_date", "return_time", "return_route", "category"]
+    assert asked == ["return_date", "return_time", "return_route", "stops", "return_stops", "category"]
+    assert "Any extra stops on the outbound trip?" in "\n".join(out)
     assert "Mid-Size SUV — up to 4 pax / 4 bags — 2 available — $209.52 round trip" in "\n".join(out)
     quote = api.named("master")[0]
     assert len(quote["location_info"]) == 2  # the backend reads [0] and [1]
@@ -568,7 +600,7 @@ async def test_individual_booking_payload(out: list[str]) -> None:
     assert body["currency"] == "USD"
     assert body["platform_type"] == "web"
     assert body["proceed"] is True
-    assert "  Booked. Reservation #12345 (order ORD-1)." in out
+    assert "  Booked. Reservation #12345." in out  # no order id
     assert flow.finished
 
 
@@ -594,6 +626,88 @@ async def test_city_pickup_asks_meet_greet_and_special_instructions(out: list[st
     assert body["booking_instructions"].endswith("<p>Gate code 4521</p>")
 
 
+async def test_extra_stops_are_asked_and_sent_to_every_api_as_the_web_app_does(out: list[str]) -> None:
+    flow, api = make_flow("individual", out)
+    await flow.start("5 am pickup on 14 nov from 233 wacker to mdw one way 2 people 1 bag")
+    assert flow.pending == "stops"
+    assert await run(flow, "navy pier", "northwestern", "no") == ["stops", "stops", "category"]
+    assert [s.short for s in flow.d.outbound.stops] == [
+        "Navy Pier - 600 E Grand Ave, Chicago, IL 60611, USA",
+        "Northwestern University - 633 Clark St, Evanston, IL 60208, USA",
+    ]
+    assert len(flow.maps.route_calls[-1]) == 4  # pickup, both stops as waypoints, drop-off
+
+    quote = api.named("master")[0]
+    assert [s["address"] for s in quote["extra_stops"]] == [s.address for s in flow.d.outbound.stops]
+    assert set(quote["extra_stops"][0]) == {"address", "latitude", "longitude"}  # buildQuotePayload
+
+    await run(flow, "2", "1")
+    rates = api.named("rates")[-1]
+    # checkExtraStopInTown: the backend charges in_town_extra_stop / outside_town_extra_stop by this
+    assert [s["rate"] for s in rates["extra_stops"]] == ["in_town", "out_town"]
+    stripped = {"address", "latitude", "longitude", "rate", "booking_instructions"}  # stripInternalStopFields
+    assert set(rates["extra_stops"][0]) == stripped
+
+    await run(flow, "UA", "skip", "ok", "skip", "yes")
+    _, body = next(c for c in api.calls if c[0].endswith("create-reservation"))
+    assert [(s["address"], s["rate"], s["kind"]) for s in body["extra_stops"]] == [
+        (flow.d.outbound.stops[0].address, "in_town", "city"),
+        (flow.d.outbound.stops[1].address, "out_town", "city"),
+    ]
+    assert body["return_extra_stops"] == []
+
+
+async def test_change_stops_to_an_address_adds_that_stop(out: list[str]) -> None:
+    flow, _ = await to_vehicle_menu("individual", out, trip="5 am pickup on 14 nov from 233 wacker to mdw")
+    await flow.handle("change stops to navy pier")
+    assert [s.short.split(" - ")[0] for s in flow.d.outbound.stops] == ["Navy Pier"]
+    assert flow.pending == "stops"  # "Another stop?"
+
+
+async def test_round_trip_asks_return_stops_meet_greet_and_instructions_separately(out: list[str]) -> None:
+    flow, api = make_flow("individual", out)
+    await flow.start("5 am pickup on 14 nov from 233 wacker to mdw round trip 2 people 1 bag")
+    await run(flow, "16 nov", "7 pm", "yes")
+    assert await run(flow, "no", "navy pier", "no") == ["return_stops", "return_stops", "category"]
+    assert "Any extra stops on the return trip?" in "\n".join(out)
+    assert flow.d.outbound.stops == []
+    assert [s.short.split(" - ")[0] for s in flow.d.ret.stops] == ["Navy Pier"]
+
+    asked = await run(flow, "2", "1", "UA", "skip", "ok", "AA", "AA 1", "Boston", "ok")
+    assert asked[-1] == "detail:0:instructions"
+    text = "\n".join(out)
+    assert "Outbound trip meet & greet (arrival instructions):" in text
+    assert "Return trip meet & greet (arrival instructions):" in text
+    assert "Outbound trip driver instructions (default): Driver - Text on location." in text
+
+    assert await run(flow, "Gate code 4521") == ["detail:1:instructions"]
+    text = "\n".join(out)
+    assert "Return trip driver instructions (default): Pax - Text driver when landing." in text
+    assert "Any special instructions to add for the return trip driver? (optional: 'skip' or 'same'" in text
+    assert await run(flow, "Call on landing, 2 car seats") == ["confirm"]
+    assert "  Notes:      Gate code 4521" in out
+    assert "  Return notes: Call on landing, 2 car seats" in out
+
+    await flow.handle("yes")
+    _, body = next(c for c in api.calls if c[0].endswith("create-reservation"))
+    assert body["booking_instructions"].endswith("<p>Gate code 4521</p>")
+    assert body["return_booking_instructions"].startswith("<ol><li>Pax - Text driver when landing.")
+    assert body["return_booking_instructions"].endswith("<p>Call on landing, 2 car seats</p>")
+    assert body["extra_stops"] == []
+    # the return stop's town is compared with the return pickup (MDW, Chicago)
+    assert [(s["address"], s["rate"]) for s in body["return_extra_stops"]] == [
+        (flow.d.ret.stops[0].address, "in_town")
+    ]
+
+
+async def test_return_instructions_can_be_the_same_as_the_outbound(out: list[str]) -> None:
+    flow, _ = make_flow("individual", out)
+    await flow.start("5 am pickup on 14 nov from 233 wacker to mdw round trip 2 people 1 bag no stops")
+    await run(flow, "16 nov", "7 pm", "yes", "2", "1", "UA", "skip", "ok", "AA", "AA 1", "Boston", "ok")
+    assert await run(flow, "Gate code 4521", "same") == ["detail:1:instructions", "confirm"]
+    assert flow.d.return_instructions == "Gate code 4521"
+
+
 async def test_past_time_is_refused_for_non_admins(out: list[str]) -> None:
     flow, _ = make_flow("individual", out)
     await flow.start("today at 6 am from ord to mdw one way 1 passenger 0 bags")
@@ -607,6 +721,29 @@ async def test_relative_date_is_confirmed(out: list[str]) -> None:
     assert flow.pending == "relative"
     assert "'kal' = Tue 27 Oct 2026. Right? (yes/no)" in out[-1]
     assert flow.d.outbound.time == "05:00:00"
+
+
+async def test_date_answer_keeps_the_time_said_with_it(out: list[str]) -> None:
+    flow, _ = make_flow("admin", out)
+    await flow.start("from ord to mdw")
+    assert flow.pending == "date"
+    assert await run(flow, "14 nov at 5pm") == ["service"]
+    assert (flow.d.outbound.date, flow.d.outbound.time) == (date(2026, 11, 14), "17:00:00")
+
+
+async def test_date_answer_with_bare_hour_asks_am_pm(out: list[str]) -> None:
+    flow, _ = make_flow("admin", out)
+    await flow.start("from ord to mdw")
+    assert await run(flow, "14 nov at 5", "pm") == ["ampm", "service"]
+    assert flow.d.outbound.time == "17:00:00"
+
+
+async def test_time_answer_keeps_passengers_said_with_it(out: list[str]) -> None:
+    flow, _ = make_flow("admin", out)
+    await flow.start("14 nov from ord to mdw")
+    assert flow.pending == "time"
+    assert await run(flow, "5 am, 3 passengers", "one way") == ["service", "luggage"]
+    assert (flow.d.outbound.time, flow.d.pax) == ("05:00:00", 3)
 
 
 async def test_cancel_books_nothing(out: list[str]) -> None:
@@ -639,6 +776,15 @@ async def test_back_goes_from_vehicles_to_categories(out: list[str]) -> None:
             (date(2026, 12, 1), "17:30:00", "233 S Wacker Dr", "ORD"),
         ),
         ("nov 3 at 12 pm JFK to LGA", (date(2026, 11, 3), "12:00:00", "JFK", "LGA")),
+        (
+            "create a booking from ord airport to mdw with 2 passenger and 4 luggages on 13dec at 2:00 pm",
+            (date(2026, 12, 13), "14:00:00", "ord airport", "mdw"),
+        ),
+        ("new booking from New Delhi to New York", (None, None, "New Delhi", "New York")),
+        (
+            "make a booking ORD to 233 S Wacker Dr with 3 pax on dec5 at 9 am",
+            (date(2026, 12, 5), "09:00:00", "ORD", "233 S Wacker Dr"),
+        ),
     ],
 )
 def test_parse_trip(text: str, expected: tuple) -> None:

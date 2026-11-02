@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import html
 import math
-from datetime import date
+from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
@@ -451,22 +451,21 @@ def _apply_trip(v: dict, d: BookingDraft) -> None:
     v["total_passengers"] = d.pax if d.pax is not None else 1
     v["luggage_count"] = d.luggage if d.luggage is not None else 0
     if d.instructions:
-        note = f"<p>{html.escape(d.instructions)}</p>"
-        v["booking_instructions"] += note
-        if rt:
-            v["return_booking_instructions"] += note
+        v["booking_instructions"] += f"<p>{html.escape(d.instructions)}</p>"
+    if rt and d.return_instructions:
+        v["return_booking_instructions"] += f"<p>{html.escape(d.return_instructions)}</p>"
 
 
 def _apply_leg(v: dict, leg: Leg, prefix: str, pickup_key: str, dropoff_key: str) -> None:
     if leg.date is not None:
         v[f"{prefix}pickup_date"] = leg.date.isoformat()
     if leg.time is not None:
-        v[f"{prefix}pickup_time"] = leg.time
+        v[f"{prefix}pickup_time"] = api_time(leg.time)
     if leg.pickup is not None:
         v.update(_end_fields(pickup_key, leg.pickup))
     if leg.dropoff is not None:
         v.update(_end_fields(dropoff_key, leg.dropoff))
-    v[f"{prefix}extra_stops"] = [_stop(s) for s in leg.stops]
+    v[f"{prefix}extra_stops"] = [_stop(s, leg.pickup) for s in leg.stops]
     if leg.route is not None:
         distance_key, time_key = (
             ("returnJourneyDistance", "returnJourneyTime")
@@ -499,6 +498,11 @@ def _apply_leg(v: dict, leg: Leg, prefix: str, pickup_key: str, dropoff_key: str
         v[f"{prefix}cruise_time"] = leg.cruise.time
 
 
+def api_time(value: str) -> str:
+    """The draft's '17:00:00' as the API takes it: '5:00 PM'."""
+    return datetime.strptime(value, "%H:%M:%S").strftime("%I:%M %p").lstrip("0")
+
+
 def _end_fields(key: str, place: Place) -> dict[str, Any]:
     if place.kind != "airport":
         return {key: place.address, f"{key}_latitude": place.lat, f"{key}_longitude": place.lng}
@@ -524,14 +528,14 @@ def airline_label(airline: dict[str, Any]) -> str:
     return f"{airline.get('code', '')} - {airline.get('name', '')}, {airline.get('country', '')}"
 
 
-def _stop(place: Place) -> dict[str, Any]:
+def _stop(place: Place, pickup: Place | None) -> dict[str, Any]:
     """An ``addExtraStop`` group; an airport stop also carries ``applyExtraStopAirportSelection``'s fields."""
     airport = place.kind == "airport"
     return {
         "address": place.address,
         "latitude": place.lat,
         "longitude": place.lng,
-        "rate": "",
+        "rate": stop_rate(place, pickup),
         "booking_instructions": "",
         "kind": "airport" if airport else "city",
         "airport": place.airport_id if airport else "",
@@ -540,6 +544,14 @@ def _stop(place: Place) -> dict[str, Any]:
         "airport_latitude": place.lat if airport else "",
         "airport_longitude": place.lng if airport else "",
     }
+
+
+def stop_rate(stop: Place, pickup: Place | None) -> str:
+    """``checkExtraStopInTown``: 'in_town' when the stop is in the leg pickup's town, else 'out_town'.
+    The backend prices a stop with any other rate as in town, so an unknown town keeps the saved rate."""
+    if pickup is None or not pickup.town or not stop.town:
+        return stop.stop_rate
+    return "in_town" if pickup.town.casefold() == stop.town.casefold() else "out_town"
 
 
 def _strip_stops(stops: list[dict]) -> list[dict]:

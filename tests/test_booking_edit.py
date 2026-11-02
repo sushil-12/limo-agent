@@ -223,7 +223,7 @@ async def test_admin_time_change_keeps_the_saved_price(out: list[str]) -> None:
     assert sent["updateType"] == "edit"
     assert sent["proceed"] is True
     assert sent["service_type"] == "one_way"
-    assert sent["pickup_time"] == "18:00:00"
+    assert sent["pickup_time"] == "6:00 PM"
     assert sent["pickup_date"] == "2026-12-12"
     assert sent["rateArray"] == RATE_ARRAY
     assert sent["grand_total"] == 100.0
@@ -507,7 +507,8 @@ async def test_new_customer_card_goes_through_the_chat_widget() -> None:
 
     await say("edit booking 2141")
     menu = await say("change customer")
-    assert "3. A new customer" in menu.content
+    assert {"number": 3, "label": "A new customer"} in menu.options  # a button, not a numbered line
+    assert "3. A new customer" not in menu.content
     for answer in ("3", "Lisa", "Taylor", "ltaylor@spearstravel.com", "+19184069395", "1"):
         reply = await say(answer)
     assert "Customer: Asha Rider → Lisa Taylor (new customer)" in reply.content

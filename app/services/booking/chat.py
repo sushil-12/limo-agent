@@ -33,6 +33,7 @@ from app.services.booking.flow import BookingFlow
 from app.services.booking.lookup import ReservationLookup
 from app.services.booking.maps import GoogleMaps
 from app.services.booking.reference import AirportIndex
+from app.services.booking.understand import TripReader
 from app.services.requester import Requester
 
 logger = get_logger(__name__)
@@ -45,6 +46,20 @@ BOOKING_REQUEST = re.compile(
     r"\b(?:gaadi|gadi|cab|car|ride|taxi)\s+(?:book\s+)?(?:chahiye|karo|kar\s+do|book\s+karo)\b",
     re.IGNORECASE,
 )
+# "help me create a booking", "i need to make a reservation for ...", "i want to book another".
+NEW_BOOKING_REQUEST = re.compile(
+    r"\b(?:create|make|place|start|do|set\s+up)\s+(?:(?:a|an|the|my|one|new|another)\s+)*"
+    r"(?:bookings?|reservations?|rides?)\b|"
+    r"\b(?:book|reserve)\s+(?:a|an|another|me|us|one)\b|"
+    r"\bhelp\s+me\s+(?:to\s+)?(?:book|reserve)\b",
+    re.IGNORECASE,
+)
+# How-to and lookup questions ("how do I make a booking?", "did I book a ride yesterday?") stay
+# with the chatbot.
+_QUESTION = re.compile(
+    r"^\s*(?:how|what|why|when|where|which|who|whom|did|does|do|is|are|was|were|have|has)\b",
+    re.IGNORECASE,
+)
 
 SIGN_IN_REPLY = "Please sign in to book a ride from the chat."
 ROLE_REPLY = "Rides can't be booked from the chat with this account. Please use the website or app."
@@ -53,6 +68,23 @@ EDIT_SIGN_IN_REPLY = "Please sign in to change a booking from the chat."
 EDIT_ROLE_REPLY = "Bookings can't be changed from the chat with this account. Please use the website or app."
 EDIT_UNAVAILABLE_REPLY = (
     "Changing a booking from the chat isn't available right now. Please use the website or app."
+)
+INTERRUPTED_REPLY = (
+    "Sorry, that booking was interrupted before it was finished, so nothing was booked. "
+    "Please start again with the whole trip in one message, for example: "
+    "book a ride from MDW to ORD on 14 nov at 5 pm."
+)
+# The booking's own questions ("What pickup time?", "How many bags?"). When the previous reply
+# ended with one but no booking is open (it went idle, or the server restarted), the answer
+# must not reach the chatbot: it would play along and "confirm" a ride nobody booked.
+_OPEN_QUESTION = re.compile(
+    r"^(?:What (?:date|pickup time)|Where (?:should|to|is the|does the return)|Which (?:terminal|city|date|"
+    r"stop|country)|How many (?:passengers|bags|hours)|One way, round trip|Return (?:date|pickup|trip)|"
+    r"Passenger name|Phone number for|Any (?:special instructions|extra stops)|Added (?:return )?stop|"
+    r"(?:Arriving|Departing) .*flight number|"
+    r"(?:Customer|Client|Travel agent) name|New customer's|Cruise|Ship time|Add a payment card|"
+    r"Confirm booking|Pick (?:a|one)|'.+' = .+Right)",
+    re.IGNORECASE,
 )
 FAILED_REPLY = (
     "Sorry, something went wrong, so I stopped this booking. If you had already confirmed it, "
@@ -64,7 +96,17 @@ _NUMBERED = re.compile(r"^\s*\d+\.\s")
 
 
 def is_booking_request(text: str) -> bool:
-    return BOOKING_REQUEST.search(text) is not None
+    if BOOKING_REQUEST.search(text) is not None:
+        return True
+    return NEW_BOOKING_REQUEST.search(text) is not None and _QUESTION.match(text) is None
+
+
+def asked_booking_question(reply: str) -> bool:
+    """Whether ``reply`` ends with one of the booking's questions (or its numbered options)."""
+    lines = [line.strip() for line in reply.splitlines() if line.strip()]
+    while lines and _NUMBERED.match(lines[-1]):
+        lines.pop()
+    return bool(lines) and _OPEN_QUESTION.match(lines[-1]) is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,17 +114,22 @@ class BookingReply:
     """One booking turn for the chat UI.
 
     ``cards`` replace the numbered category / vehicle list in ``content``: picking a card
-    sends its ``number``. ``replies`` are suggested answers to show as buttons.
+    sends its ``number``. ``options`` replace any other numbered list (places, airports,
+    terminals, customers...) the same way, as buttons ``{"number", "label"}``. ``replies`` are
+    suggested answers to show as buttons.
     """
 
     content: str
     active: bool  # the conversation's next message goes to the booking
     cards_kind: str | None = None  # "category" | "vehicle"
     cards: tuple[dict[str, Any], ...] = ()
+    options: tuple[dict[str, Any], ...] = ()
     replies: tuple[str, ...] = ()
     # A changed booking for a new customer: the widget's card form adds the card to ``payload``
     # and sends it to the 1800limo API itself (EditFlow), so the card never reaches this server.
     card_request: dict[str, Any] | None = None
+    preview: dict[str, Any] | None = None  # the booking to confirm, shown as a designed card
+    booked: dict[str, Any] | None = None  # the booking just created, shown as a success card
 
 
 @dataclass
@@ -92,6 +139,10 @@ class _Session:
     lines: list[str] = field(default_factory=list)
     cards_kind: str | None = None  # the latest cards shown; sent again while their menu is open
     cards: list[dict[str, Any]] = field(default_factory=list)
+    options: list[dict[str, Any]] = field(default_factory=list)  # the open menu's buttons
+    options_menu: object = None  # the menu they belong to; sent again while it is open
+    preview: dict[str, Any] | None = None  # sent once, with the reply that asks to confirm
+    booked: dict[str, Any] | None = None  # sent once, with the reply that says it is booked
     used: float = 0.0
 
     def say(self, line: str) -> None:
@@ -105,24 +156,50 @@ class _Session:
             del self.lines[-len(cards) :]
         self.cards_kind, self.cards = kind, cards
 
+    def show_preview(self, preview: dict[str, Any]) -> None:
+        self.preview = preview
+
+    def show_booked(self, booked: dict[str, Any]) -> None:
+        self.booked = booked
+
     def take_reply(self) -> BookingReply:
         flow = self.flow
         # A reply on an open category / vehicle menu ("sorry, I didn't get that", "summary") carries
         # its cards again: only the latest message's cards can be picked in the widget.
         menu_open = flow.menu is not None and flow.menu.kind == self.cards_kind
+        if flow.menu is not None and not menu_open:
+            self._take_options(len(flow.menu.options))
+        options_open = flow.menu is not None and flow.menu is self.options_menu
         card_request = getattr(flow, "card_request", None)
         reply = BookingReply(
             content="\n".join(self.lines).strip() or "OK.",
             active=not flow.finished,
             cards_kind=self.cards_kind if menu_open else None,
             cards=tuple(self.cards) if menu_open else (),
+            options=tuple(self.options) if options_open and not menu_open else (),
             replies=() if flow.finished else _suggested_replies(flow),
             card_request=card_request if not flow.finished else None,
+            preview=self.preview,
+            booked=self.booked,
         )
         if isinstance(flow, EditFlow):
             flow.card_request = None  # sent once; the flow sets it again to show the form again
         self.lines = []
+        self.preview = self.booked = None
         return reply
+
+    def _take_options(self, count: int) -> None:
+        """Turn the open menu's "1. ..." to "<count>. ..." lines into buttons."""
+        numbers = [i for i, line in enumerate(self.lines) if line.startswith("1. ")]
+        for start in reversed(numbers):
+            block = self.lines[start : start + count]
+            if len(block) == count and all(line.startswith(f"{n}. ") for n, line in enumerate(block, 1)):
+                self.options = [
+                    {"number": n, "label": line.split(". ", 1)[1].strip()} for n, line in enumerate(block, 1)
+                ]
+                self.options_menu = self.flow.menu
+                del self.lines[start : start + count]
+                return
 
 
 class BookingSessions:
@@ -135,6 +212,7 @@ class BookingSessions:
         maps: GoogleMaps | None,
         airports: Callable[[], AirportIndex],
         lookup: ReservationLookup | None = None,
+        reader: TripReader | None = None,
         ttl_seconds: float = 1800.0,
         max_sessions: int = 1000,
         now: Callable[[], datetime] | None = None,
@@ -144,6 +222,7 @@ class BookingSessions:
         self._maps = maps
         self._airports = airports
         self._lookup = lookup
+        self._reader = reader
         self._ttl = ttl_seconds
         self._max = max_sessions
         self._now = now
@@ -163,9 +242,15 @@ class BookingSessions:
         return key is not None and self._live(key) is not None
 
     async def handle(
-        self, requester: Requester, conversation_id: str | None, token: str | None, text: str
+        self,
+        requester: Requester,
+        conversation_id: str | None,
+        token: str | None,
+        text: str,
+        previous_reply: str | None = None,
     ) -> BookingReply | None:
-        """The booking's reply to ``text``, or None when this message is not part of a booking."""
+        """The booking's reply to ``text``, or None when this message is not part of a booking.
+        ``previous_reply`` is the assistant's last message in the client's history."""
         key = _key(requester, conversation_id)
         session = self._live(key) if key is not None else None
         if session is None:
@@ -174,6 +259,9 @@ class BookingSessions:
             follow_up = recent if not edit and recent is not None and is_edit_follow_up(text) else None
             edit = edit or follow_up is not None
             if not edit and not is_booking_request(text):
+                if previous_reply is not None and asked_booking_question(previous_reply):
+                    logger.info("booking_interrupted", **requester.log_fields())
+                    return BookingReply(INTERRUPTED_REPLY, active=False)
                 return None
             refusal = self._refusal(requester, token, edit=edit)
             if refusal is not None:
@@ -210,12 +298,14 @@ class BookingSessions:
             "maps": self._maps,  # _refusal returned for None
             "airports": self._airports(),
             "card_form": False,
+            "reader": self._reader,
         }
         flow = EditFlow(**common, lookup=self._lookup) if edit else BookingFlow(**common)
         if self._now is not None:
             flow.now = self._now
         session = _Session(flow=flow, used=self._clock())
         flow.say, flow.show_cards = session.say, session.show_cards
+        flow.show_preview, flow.show_booked = session.show_preview, session.show_booked
         self._sessions[key] = session
         return session
 
@@ -300,6 +390,8 @@ def _suggested_replies(flow: BookingFlow) -> tuple[str, ...]:
         replies = ("AM", "PM")
     elif pending.startswith("meet_default:"):
         replies = ("OK",)
+    elif pending == "detail:1:instructions" and flow.d.instructions:
+        replies = ("Same", "Skip")
     elif pending.endswith((":dropoff_flight", ":cruise_time", ":instructions")):
         replies = ("Skip",)
     elif pending in ("stops", "return_stops"):

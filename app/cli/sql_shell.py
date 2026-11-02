@@ -76,7 +76,7 @@ from app.core.errors import ServiceUnavailableError
 from app.core.logging import configure_logging
 from app.db.session import create_engine
 from app.llm.base import LLMError, LLMMessage, LLMProvider
-from app.llm.factory import create_llm_provider, create_ollama_client
+from app.llm.factory import create_llm_client, create_llm_provider
 from app.schemas.chat import ChatMessageIn, ChatRequest
 from app.services.booking.api import BOOKING_MODES, ROLE_PATHS, ApiError, LimoApi
 from app.services.booking.card_form import collect_card
@@ -570,11 +570,11 @@ async def _run(args: argparse.Namespace) -> int:
         return 2
 
     engine = create_engine(settings)
-    client = create_ollama_client(settings)
+    client = create_llm_client(settings)
     provider = create_llm_provider(settings.llm_provider, settings, client)
     sql_provider = (
-        create_llm_provider(settings.llm_provider, settings, client, model=settings.ollama_sql_model)
-        if settings.ollama_sql_model
+        create_llm_provider(settings.llm_provider, settings, client, model=settings.sql_model)
+        if settings.sql_model
         else provider
     )
     catalog = SchemaCatalog(engine, ttl_seconds=settings.data_schema_cache_seconds)

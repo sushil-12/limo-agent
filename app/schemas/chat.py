@@ -96,11 +96,84 @@ class BookingCardOut(BaseModel):
     images: list[str]  # absolute photo URLs, main photo first; may be empty
 
 
+class BookingOptionOut(BaseModel):
+    """One option of any other numbered menu, as a button. Picking it sends ``number``."""
+
+    number: int
+    label: str
+
+
 class CardRequestOut(BaseModel):
     method: Literal["PUT", "POST"]
     path: str  # relative to the 1800limo API base URL (the web app's serverUrl)
     payload: dict[str, Any]
     card_holder: str
+
+
+class LabelValueOut(BaseModel):
+    label: str
+    value: str
+
+
+class PreviewPointOut(BaseModel):
+    type: Literal["pickup", "stop", "dropoff"]
+    label: str
+
+
+class PreviewLegOut(BaseModel):
+    title: str  # "Your trip" | "Outbound trip" | "Return trip"
+    when: str
+    points: list[PreviewPointOut]  # pickup, stops, drop-off in order
+    distance: str | None
+    details: list[LabelValueOut]  # flights, cruise, meet & greet, special instructions
+
+
+class PreviewVehicleOut(BaseModel):
+    title: str
+    subtitle: str | None
+    size: str | None
+    image: str | None  # absolute photo URL
+
+
+class PreviewPriceOut(BaseModel):
+    label: str
+    amount: str
+    lines: list[LabelValueOut]  # the non-zero rate lines
+
+
+class BookingPreviewOut(BaseModel):
+    """The booking to confirm, as the widget's preview card (the text summary's facts)."""
+
+    service: str
+    legs: list[PreviewLegOut]
+    vehicle: PreviewVehicleOut | None
+    rows: list[LabelValueOut]  # passengers, operator, driver, customer, passenger
+    prices: list[PreviewPriceOut]
+    total: str | None
+    notes: list[str]
+
+
+class BookedLegOut(BaseModel):
+    title: str
+    when: str
+    from_: str = Field(alias="from")
+    to: str
+    stops: int
+
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+
+class BookedOut(BaseModel):
+    """The booking just created, as the widget's success card."""
+
+    reservation_id: str
+    return_reservation_id: str | None
+    service: str
+    legs: list[BookedLegOut]
+    vehicle: str | None
+    passenger: str | None
+    total: str | None
+    message: str
 
 
 class BookingOut(BaseModel):
@@ -109,11 +182,14 @@ class BookingOut(BaseModel):
     active: bool  # the next message in this conversation goes to the booking
     cards_kind: Literal["category", "vehicle"] | None
     cards: list[BookingCardOut]  # replace the numbered list in ``content``
+    options: list[BookingOptionOut] = []  # replace any other numbered list in ``content``
     replies: list[str]  # suggested answers to show as buttons
     # Set when changing a booking needs a new customer's card: the client's card form adds the
     # card to ``payload.loose_customer.card_details`` and sends ``method`` ``path`` to the 1800limo
     # API with the user's token, then posts "card:ok" or "card:error <message>" to the chat.
     card_request: CardRequestOut | None = None
+    preview: BookingPreviewOut | None = None  # shown with "Confirm booking?"
+    booked: BookedOut | None = None  # shown once the booking is created
 
 
 class ChatResponse(BaseModel):

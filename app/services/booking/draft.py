@@ -23,6 +23,9 @@ class Place:
     airport_id: int | str = ""  # internal airport id (airports.json) for airports
     airport_label: str = ""  # ``*_airport_option`` / ``*_airport_name``
     country_names: tuple[str, ...] = ()
+    country: str = ""  # "United States"; empty when not known
+    town: str = ""  # the locality ("Chicago"); empty when not known
+    stop_rate: str = ""  # a saved stop's in_town / out_town, kept when the towns aren't known
 
     @property
     def short(self) -> str:
@@ -119,6 +122,7 @@ class BookingDraft:
     customer: Customer | None = None
     passenger: Passenger | None = None
     instructions: str = ""  # extra notes, added to booking_instructions
+    return_instructions: str = ""  # the return leg's own notes, added to return_booking_instructions
 
     @property
     def is_round_trip(self) -> bool:

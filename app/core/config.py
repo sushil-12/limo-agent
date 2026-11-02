@@ -67,7 +67,14 @@ class Settings(BaseSettings):
     db_read_only: bool = True
 
     # --- LLM ---------------------------------------------------------------------
-    llm_provider: str = "ollama"
+    llm_provider: Literal["ollama", "openai"] = "ollama"
+    # OpenAI (LLM_PROVIDER=openai). Phone numbers, emails and card numbers are masked first.
+    openai_api_key: SecretStr | None = None
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_model: str = "gpt-4.1-mini"
+    openai_sql_model: str | None = None  # empty = OPENAI_MODEL
+    openai_temperature: float = Field(default=0.3, ge=0, le=2)
+    openai_timeout: float = Field(default=60.0, gt=0)  # read timeout between chunks
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1:8b"
     ollama_keep_alive: str = "30m"
@@ -107,6 +114,8 @@ class Settings(BaseSettings):
     google_maps_api_key: SecretStr | None = None  # server-side Places (New) + Directions key
     chat_booking_enabled: bool = True  # "book a ride ..." in /v1/chat starts the booking flow
     chat_booking_ttl_seconds: float = Field(default=1800.0, gt=0)  # idle bookings are dropped
+    chat_booking_ai_read: bool = True  # the model reads trip details the rules miss
+    chat_booking_ai_timeout_seconds: float = Field(default=8.0, gt=0)  # then the rules' answer is used
 
     @field_validator(
         "service_api_key",
@@ -114,6 +123,8 @@ class Settings(BaseSettings):
         "passport_public_key",
         "passport_public_key_path",
         "ollama_sql_model",
+        "openai_api_key",
+        "openai_sql_model",
         "data_query_log_path",
         "data_sql_cache_path",
         "chat_log_path",
@@ -156,7 +167,14 @@ class Settings(BaseSettings):
             raise ValueError(f"SERVICE_API_KEY must be at least {MIN_SERVICE_KEY_LENGTH} chars")
         if not self.auth_allowed_roles:
             raise ValueError("AUTH_ALLOWED_ROLES must allow at least one role")
+        if self.llm_provider == "openai" and self.openai_api_key is None:
+            raise ValueError("LLM_PROVIDER=openai requires OPENAI_API_KEY")
         return self
+
+    @property
+    def sql_model(self) -> str | None:
+        """The separate model for writing SQL, if one is set for the configured provider."""
+        return self.openai_sql_model if self.llm_provider == "openai" else self.ollama_sql_model
 
     @property
     def is_production(self) -> bool:

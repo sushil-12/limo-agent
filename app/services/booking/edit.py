@@ -54,6 +54,7 @@ from app.services.booking.maps import Route
 from app.services.booking.parse import parse_service, parse_yes_no
 from app.services.booking.payload import (
     airline_label,
+    api_time,
     apply_rates,
     booking_currency,
     default_instructions,
@@ -132,7 +133,8 @@ def form_from_reservation(
     hours = _int(data.get("number_of_hours"))
     v["number_of_hours"] = hours or 2
     v["pickup_date"] = str(data.get("pickup_date") or v["pickup_date"])[:10]
-    v["pickup_time"] = _time_value(data.get("pickup_time")) or v["pickup_time"]
+    time = _time_value(data.get("pickup_time"))
+    v["pickup_time"] = api_time(time) if time else v["pickup_time"]
     v["cancellation_hours"] = str(data.get("cancellation_hours") or "24")
     v["booking_instructions"] = str(data.get("booking_instructions") or "").replace("<br />", "")
     if v["account_type"] == "loose_customer":  # a loose customer is saved as an individual account
@@ -285,6 +287,7 @@ def _end(data: dict[str, Any], key: str, kind: str, airports: AirportIndex) -> P
             airport_id=data.get(f"{key}_airport") or "",
             airport_label=label,
             country_names=(airport.country,) if airport else (),
+            country=airport.country if airport else "",
         )
     if not line:
         return None
@@ -305,6 +308,7 @@ def _stop(stop: dict[str, Any]) -> Place:
         lng=_float(stop.get("longitude")) or 0.0,
         airport_id=stop.get("airport") or "" if airport else "",
         airport_label=str(stop.get("airport_name") or "") if airport else "",
+        stop_rate=str(stop.get("rate") or ""),
     )
 
 

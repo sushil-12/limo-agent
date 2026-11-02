@@ -33,8 +33,9 @@ _MONTH = r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?"
 _ORD = r"(?:st|nd|rd|th)?"
 
 _RE_ISO = re.compile(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b")
-_RE_DAY_MONTH = re.compile(rf"\b(?:on\s+)?(\d{{1,2}}){_ORD}\s+(?:of\s+)?{_MONTH}(?:,?\s*(\d{{4}}))?", re.I)
-_RE_MONTH_DAY = re.compile(rf"\b(?:on\s+)?{_MONTH}\s+(\d{{1,2}}){_ORD}(?:,?\s*(\d{{4}}))?\b", re.I)
+# "14 nov", "13dec", "dec13" (the space is often left out)
+_RE_DAY_MONTH = re.compile(rf"\b(?:on\s+)?(\d{{1,2}}){_ORD}\s*(?:of\s+)?{_MONTH}(?:,?\s*(\d{{4}}))?", re.I)
+_RE_MONTH_DAY = re.compile(rf"\b(?:on\s+)?{_MONTH}\s*(\d{{1,2}}){_ORD}(?:,?\s*(\d{{4}}))?\b", re.I)
 _RE_RELATIVE = re.compile(
     r"\b(?:on\s+)?(day\s+after\s+tomorrow|parso[n]?|today|aaj|tonight|tomorrow|tmrw|tmr|kal)\b", re.I
 )
@@ -75,12 +76,16 @@ _RE_NO_STOPS = re.compile(r"\bno\s+(?:extra\s+)?stops?\b|\bdirect\b|\bnon[\s-]?s
 
 _FILLER_START = re.compile(
     r"^(?:(?:hi|hello|hey|please|pls|plz|kindly|can\s+you|could\s+you|i\s+(?:want|need|would\s+like)|"
-    r"we\s+(?:want|need)|mujhe|hume|humein|book(?:ing)?|need|want|get|me|a|an|the|ride|car|cab|taxi|limo|"
+    r"we\s+(?:want|need)|mujhe|hume|humein|book(?:ing)?|reservation|create|make|help|"
+    # "new" / "another" / "place" only before a booking word: "New Delhi", "New York" are places
+    r"(?:new|another)(?=\s+(?:booking|reservation|ride|trip|car|cab)\b)|place(?=\s+(?:a|an|the|my)\b)|"
+    r"need|want|get|me|a|an|the|ride|car|cab|taxi|limo|"
     r"gaadi|gadi|transfer|trip|pickup|pick\s*up|pick-up|for|on|at|chahiye|karo|kar\s+do|ek)\b[\s,]*)+",
     re.I,
 )
 _FILLER_END = re.compile(
-    r"(?:[\s,]*\b(?:please|pls|plz|tak|ko|jana|jaana|hai|chahiye|drop|karo|kar\s+do|on|at|for|and|"
+    # "with" / "and" are left behind once "with 2 passengers and 4 bags" is taken out
+    r"(?:[\s,]*\b(?:please|pls|plz|tak|ko|jana|jaana|hai|chahiye|drop|karo|kar\s+do|on|at|for|and|with|"
     r"pickup|pick\s*up)\b)+[\s,.!?]*$",
     re.I,
 )
