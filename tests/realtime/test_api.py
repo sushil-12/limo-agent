@@ -12,6 +12,7 @@ from app.realtime.fcm import PushMessage, SendOutcome
 from tests.conftest import TokenFactory
 from tests.realtime.conftest import (
     ADMIN,
+    AGENT_PAX,
     CHARTER_RIDE,
     DRIVER,
     INTERNAL_SECRET,
@@ -288,13 +289,16 @@ def test_share_token_reads_the_ride_summary_and_nothing_else(h: RtHarness, rt_to
     assert body["ride_id"] == str(LIVE_RIDE)
     assert body["status"] == "en_route_pu"
     assert body["driver_first_name"] == "Dev"
+    # For chat on the Node socket: the agent-booked passenger, and the driver.
+    assert body["customer_id"] == AGENT_PAX
+    assert body["driver_id"] == DRIVER
     assert body["pickup"] == {"address": "JFK Terminal 4", "lat": 40.75, "lng": -73.99}
     assert body["dropoff"]["address"] == "1 Central Park West"
     assert [s["address"] for s in body["stops"]] == ["Stop A", "Stop B"]
     assert body["stops"][1]["lat"] is None
     assert body["expires_at"] > 0
     assert "phone" not in r.text
-    assert "Asha" not in r.text  # nothing about the passenger
+    assert "Asha" not in r.text and "Pia" not in r.text  # no passenger names
 
     # A share token can't use the rider's own endpoints, and a user token can't use this one.
     assert h.client.get(f"/rt/v1/rides/{LIVE_RIDE}/messages", headers=bearer(token)).status_code in (401, 403)

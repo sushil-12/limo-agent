@@ -166,7 +166,9 @@ class RideDirectory:
 
     async def summary(self, ride_id: int) -> dict[str, Any] | None:
         """What a share-link viewer needs to draw the ride: endpoints, stops, the driver's first
-        name and the status. Nothing about the passenger, and no phone numbers."""
+        name and the status. No phone numbers or passenger details; only the two user ids the
+        tracking page needs for chat on the Node notifications socket. Anyone holding the link
+        can chat as the passenger."""
         info = await self.get(ride_id)
         if info is None:
             return None
@@ -194,6 +196,10 @@ class RideDirectory:
             "ride_id": str(info.id),
             "status": info.status,
             "driver_first_name": info.driver_first_name,
+            # users.id, as the Node chat keys them. The travel client (last) when an agent
+            # booked for someone, as Laravel's notifications pick the passenger.
+            "customer_id": info.rider_user_ids[-1] if info.rider_user_ids else None,
+            "driver_id": info.driver_user_id,
             "pickup": end(_address(m["pickup"], m["pickup_address"]), info.pickup),
             "dropoff": end(_address(m["dropoff"], m["dropoff_address"]), info.dropoff),
             "stops": stop_summaries(m["extra_stops"]),
